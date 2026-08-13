@@ -103,6 +103,15 @@ Authentication, institutional access, and database permissions are provided enti
 
 The project is distributed as an **AI Skill**. Install it according to the Skill installation method supported by your AI Agent or Coding Agent.
 
+Example (Codex / local skills folder):
+
+```bash
+cp -R . ~/.agents/skills/cnki-download
+```
+
+Agent instructions live in `SKILL.md`. Chrome needs **Allow JavaScript from Apple Events**.
+
+
 目前已经在以下环境中进行过测试：
 
 - OpenCode
