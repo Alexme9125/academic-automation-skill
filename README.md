@@ -193,38 +193,6 @@ If a website requires a CAPTCHA or another interactive verification step, automa
 
 ---
 
-# Paid Content / 付费内容
-
-Academic Automation Skill **不能让用户免费获取原本需要付费、订阅或机构授权才能访问的内容。**
-
-例如，如果某篇论文需要：
-
-- 个人购买；
-- 数据库订阅；
-- 高校或研究机构授权；
-- 其他合法访问权限；
-
-那么用户仍然需要通过相应方式获得访问权限。
-
-自动化浏览器操作不会改变文献本身的访问权限。
-
----
-
-Academic Automation Skill **cannot provide free access to content that normally requires payment, subscription, or institutional authorization.**
-
-If an article requires:
-
-- individual purchase;
-- a database subscription;
-- university or research-institution access;
-- or another form of authorized access;
-
-the user must obtain that access independently.
-
-Browser automation does not alter the access rights associated with academic content.
-
----
-
 # Third-Party Services / 第三方平台声明
 
 Academic Automation Skill 是一个独立的个人项目。
@@ -251,23 +219,15 @@ Academic Automation Skill does not circumvent authentication, paywalls, CAPTCHAs
 
 ---
 
-# Responsible Use / 使用说明
+# Responsible Use / 注意事项
 
-Academic Automation Skill 的目标是：
-
-> **减少学术研究过程中重复、机械的浏览器操作。**
-
-它的设计目的并不是提供数据库本身没有授予用户的访问权限。
+Academic Automation Skill 的目标是 **减少学术研究过程中重复、机械的浏览器操作，** 它的设计目的并不是提供数据库本身没有授予用户的访问权限。
 
 请合理控制自动化任务的规模和频率，并尊重学术数据库及所在机构的相关规则。
 
 ---
 
-The goal of Academic Automation Skill is to:
-
-> **reduce repetitive and mechanical browser operations in academic research workflows.**
-
-It is not designed to grant users access privileges that have not already been provided by the relevant database or institution.
+The goal of Academic Automation Skill is to:**reduce repetitive and mechanical browser operations in academic research workflows.** It is not designed to grant users access privileges that have not already been provided by the relevant database or institution.
 
 Please use automation at a reasonable scale and frequency and respect the applicable rules of academic databases and institutions.
 
