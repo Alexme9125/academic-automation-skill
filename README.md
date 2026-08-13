@@ -67,22 +67,25 @@ Academic platforms may change their page structures, authentication mechanisms, 
 
 ## Operating System / 操作系统
 
-目前正式测试环境：
+由于目前依赖 Apple Event Kit 实现浏览器自动化相关功能，Academic Automation Skill 目前仅支持 macOS。
 
-**macOS 14 or later**
+系统要求：
 
-Current tested environment:
+macOS 14 or later
 
-**macOS 14 or later**
+Windows 版本正在与其他参与者共同开发和测试。由于 Windows 无法使用 Apple Event Kit，相关功能需要采用不同的自动化实现，因此目前尚不可用。
 
-> **Windows support is under development and testing.**
->
-> Windows 版本正在与其他参与者共同开发和测试，目前不保证能够正常运行。
+Linux 目前暂不支持。
 
-Linux 目前尚未进行充分测试。
+Academic Automation Skill currently supports macOS only, as its browser automation functionality relies on Apple Event Kit.
 
-Linux has not yet been sufficiently tested.
+System requirement:
 
+macOS 14 or later
+
+Windows support is currently being developed and tested with other contributors. Since Apple Event Kit is unavailable on Windows, these features require a different automation implementation and are not yet available.
+
+Linux is currently unsupported.
 ## Browser / 浏览器
 
 目前需要配合：
