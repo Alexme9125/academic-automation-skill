@@ -34,7 +34,7 @@
   var t = document.title.replace(/\s*-\s*中国知网$/, '').trim();
   var body = document.body ? document.body.innerText : '';
   var lines = body.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
-  var out = {title: t, doi: '', doi_header: '', authors: '', journal: '', year: '', abstract: '', doi_hrefs: []};
+  var out = {title: t, doi: '', doi_header: '', authors: '', journal: '', year: '', abstract: '', url: location.href || '', doi_hrefs: []};
   var m;
   for (var i = 0; i < lines.length; i++) {
     var l = lines[i];

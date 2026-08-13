@@ -38,7 +38,7 @@ python3 "$SK/cnki_bib.py" meta.json 权威外文文献清单.md --title "外文�
 
 `cnki_meta.js` 会取**最长 DOI**（含 `(09).12` 这类括号段），避免信知网头部的截断 DOI。可疑时再对当前详情页跑 `cnki_full_doi.js`。
 
-清单每条含：题名、作者、期刊/年份、DOI、摘要、全文指引（先写 `https://doi.org/{DOI}`，下载成功后改成 OA 或机构订阅）。
+清单每条必须含发布页超链接：题名写成 `[题名](url)`，并另写 `- 全文：` 或 `- 链接：`。优先 `https://doi.org/{DOI}`；无 DOI 时用知网 `kcms2/article/abstract` 摘要页。下载成功后把全文行改成 OA 或机构订阅。禁止只写题名/作者、没有 URL。
 
 ### 3. 按 DOI 取全文
 

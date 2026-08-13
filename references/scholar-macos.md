@@ -30,7 +30,7 @@ python3 "$SK/gs_bib.py" /tmp/gs.json 谷歌学术文献清单.md --title "谷歌
 
 - **人机验证**：标题或正文出现 `unusual traffic` / `sorry/index` 时停止，请用户在 Chrome 里点完再跑。脚本退出码 `2`。
 - **不要用 curl 抓 Scholar HTML**，会缺登录态/cookie，也更容易验证码。
-- Scholar **不提供 DOI 字段**。清单里先留原文链接；需要 DOI 时打开链接或用 Crossref，再接到 `oa_dl.sh`。
+- Scholar **不提供 DOI 字段**。文献目录每条必须有发布页超链接：题名写成 `[题名](href)`，并写 `- 链接：`；无题名 href（如 `[CITATION]`）时用侧栏 PDF 兜底，并注明。需要 DOI 时打开链接或用 Crossref，再接到 `oa_dl.sh`。禁止只写题名/作者、没有 URL。
 - 侧栏 PDF 很多是镜像，curl 可能 403；能下再用 `file` 验证，否则走机构订阅。
 - 中国网络有时 `scholar.google.com` 打不开，可改 `scholar.google.com.hk`（把 `gs_search.sh` 里的主机换掉）。本次本机 `.com` 可用。
 - 注入时保持 Chrome 为前置窗口。

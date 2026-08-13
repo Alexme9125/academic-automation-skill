@@ -186,13 +186,31 @@ sleep 3
 LINKS=$("$RUNJS" "$DIR/pub/find_pdf.js")
 echo "PDF_CANDIDATES: $LINKS"
 PDF=$(python3 -c "
-import sys
+import re, sys
+cands = []
 for line in sys.argv[1].splitlines():
-    if '@@' not in line: continue
-    url=line.split('@@',1)[1].strip()
-    low=url.lower()
+    if '@@' not in line:
+        continue
+    label, url = line.split('@@', 1)
+    url = url.strip()
+    low = url.lower()
+    lab = label.lower()
+    score = 0
     if '.pdf' in low or '/article/download/' in low or '/uploadfile/' in low:
-        print(url); break
+        score = 4
+    if 'pdf' in lab:
+        score = max(score, 2)
+    m = re.search(r'/article/view/(\d+)/(\d+)', url)
+    if m:
+        url = re.sub(r'/article/view/', '/article/download/', url, count=1)
+        score = max(score, 3 if 'pdf' in lab else 2)
+        if 'turkish' in lab or '中文' in lab:
+            score -= 1
+    if score:
+        cands.append((score, url))
+cands.sort(key=lambda x: -x[0])
+if cands:
+    print(cands[0][1])
 " "$LINKS")
 if [[ -n "$PDF" ]] && curl_pdf "$PDF"; then
   archive_tmp

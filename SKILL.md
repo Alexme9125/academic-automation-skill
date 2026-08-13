@@ -1,7 +1,7 @@
 ---
 name: cnki-download
-description: 按用户给出的文献方向，在知网中文库/外文库或谷歌学术检索，再按用户选择下载能获取的全文或只整理题录目录。当用户要求从知网下载文献、CNKI、外文文献、WWJD、谷歌学术、Google Scholar、按 DOI 下 PDF、整理文献目录、把目录里的文献下下来时使用。未说明网站、语言或交付方式时先问再做。macOS 版依赖已登录的 Chrome 与 AppleScript（osascript）。
-version: 1.3.0
+description: 按用户给出的文献方向，在知网中文库/外文库、Web of Science 或谷歌学术检索，再按用户选择下载能获取的全文或只整理题录目录。当用户要求从知网下载文献、CNKI、外文文献、WWJD、Web of Science、WoS、WOS、谷歌学术、Google Scholar、按 DOI 下 PDF、整理文献目录、把目录里的文献下下来时使用。未说明网站、语言或交付方式时先问再做。macOS 版依赖已登录的 Chrome 与 AppleScript（osascript）。
+version: 1.4.1
 ---
 
 # CNKI 文献批量下载与归档（macOS）
@@ -12,13 +12,14 @@ version: 1.3.0
 |---|---|---|
 | **中文库** | 中文期刊/博硕/会议，详情页有「PDF下载 / CAJ下载」 | 下文「中文库」；脚本 `scripts/cnki_dl.sh` |
 | **外文库** | 英文检索、WWJD、外文期刊/会议，详情页只有 DOI、**没有** PDF/CAJ 按钮 | 读 [references/foreign-macos.md](references/foreign-macos.md)。**禁止**对此外文详情页跑 `cnki_click.js` |
+| **Web of Science** | WoS / WOS / Core Collection / Clarivate | 读 [references/wos-macos.md](references/wos-macos.md)；脚本 `wos_search.sh` + `wos_bib.py`。站内无 PDF，全文走 DOI + `oa_dl.sh` |
 | **谷歌学术** | Google Scholar 检索、出文献目录 md、补经典外文题录 | 读 [references/scholar-macos.md](references/scholar-macos.md)；脚本 `gs_search.sh` + `gs_bib.py` |
 
 本文件是 **macOS** 版：用 `osascript` 驱动已登录的 Google Chrome 执行 JS。CNKI 场景下不要依赖 Chrome 远程调试 / CDP（本机常因 `DevToolsActivePort` 权限失败）；osascript 更省事。Windows 版另计，不要把这里的 `osascript` / `open -a` 直接搬过去。
 
 ## 前提条件
 
-1. **macOS + Google Chrome**，且已在知网登录机构/个人账号。验证：`open -a "Google Chrome" https://www.cnki.net/`，页头显示机构名即已登录；若只显示「个人登录」，请用户先登录。
+1. **macOS + Google Chrome**，且已在知网登录机构/个人账号。验证：`open -a "Google Chrome" https://www.cnki.net/`，页头显示机构名即已登录；若只显示「个人登录」，请用户先登录。Web of Science 用同一 Chrome 会话：能打开 `https://www.webofscience.com/wos/woscc/basic-search` 即可；若跳到 `access.clarivate.com/login`，请用户走图书馆代理/VPN。顶栏 Sign In 是 Clarivate 个人账号，与机构访问不是一回事。
 2. **AppleScript 可驱动 Chrome 执行 JS**。验证：
    ```bash
    osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.title"'
@@ -46,14 +47,14 @@ version: 1.3.0
 
 方向有了，但网站或语言未提及时，一次问清这两项，**等回答后再打开检索页**：
 
-1. 在哪个网站搜？知网中文库 / 知网外文库 / 谷歌学术 / 几个都要  
+1. 在哪个网站搜？知网中文库 / 知网外文库 / Web of Science / 谷歌学术 / 几个都要  
 2. 要哪种语言？中文 / 英文 / 中英都要  
 
-对应关系：中文 → 知网中文库；英文 → 知网外文库或谷歌学术（用户选）；中英都要 → 分两次检索，中文任务前点回「中文」标签。用户已写「从知网下中文」或「用谷歌学术」就直接开搜。
+对应关系：中文 → 知网中文库；英文 → 知网外文库、Web of Science 或谷歌学术（用户选）；中英都要 → 分两次检索，中文任务前点回「中文」标签。用户已写「从知网下中文」「用 WoS」或「用谷歌学术」就直接开搜。
 
 ### 检索
 
-按选定网站执行（中文库 / 外文库 / Scholar，见后文）。检索结束后用几句话汇报：命中大约多少条、本页抽了几条、和主题是否对得上。不要在这一步开始批量下载。
+按选定网站执行（中文库 / 外文库 / WoS / Scholar，见后文）。检索结束后用几句话汇报：命中大约多少条、本页抽了几条、和主题是否对得上。不要在这一步开始批量下载。
 
 ### 问 2：交付方式（检索后、下载前）
 
@@ -62,7 +63,22 @@ version: 1.3.0
 - **能下则下**：把能获取的全文下载归档；下不了的（无链接、非 OA、需订阅、DOI 未注册）全部写入文献目录，并标注原因  
 - **只做目录**：所有命中都只整理成 Markdown 目录，不下载 PDF/CAJ  
 
-外文库本身没有知网 PDF 按钮，「能下则下」= 有完整 DOI 且出版社 OA/侧栏 PDF 能拿到的才下，其余进目录并标机构订阅。
+外文库和 Web of Science 都没有站内 PDF 按钮，「能下则下」= 有完整 DOI 且出版社 OA/侧栏 PDF 能拿到的才下，其余进目录并标机构订阅。
+
+**文献目录必须带发布页链接。** 凡写成 Markdown 文献目录（只做目录，或「能下则下」里下不了的题录），**每一条都必须有指向该文献发布页面的可点击超链接**，不能只有题名和作者。题名写成 `[题名](url)`，并另写 `- 链接：` 或 `- 全文：` 行。URL 优先顺序：出版社落地页 / `https://doi.org/{DOI}` → 知网 `kcms2/article/abstract` 摘要页 → Scholar 题名 href → WoS `/full-record/WOS:…` → 侧栏 PDF。没有 DOI 时用当时最好的 URL，并注明来源。禁止输出无 URL 的目录条目。
+
+示例：
+
+```markdown
+### 1
+**[Value-added assessment in science education](https://doi.org/10.1177/21582440251382664)**
+- 作者：Chen, L.
+- 期刊：SAGE Open, 2025
+- DOI：10.1177/21582440251382664
+- 链接：https://doi.org/10.1177/21582440251382664
+```
+
+中文库目录用知网摘要页，例如 `**[题名](https://kns.cnki.net/kcms2/article/abstract?…)**` 加 `- 链接：` 同一 URL。
 
 ### 执行与完成
 
@@ -86,7 +102,7 @@ version: 1.3.0
 
 ### 工作流
 
-从研究方向检索进来时，先完成上文「问 2：交付方式」。用户选「只做目录」则抽题录写 Markdown，不要跑 `cnki_dl.sh`。选「能下则下」或直接丢来题名清单时，再按下面逐篇下载。
+从研究方向检索进来时，先完成上文「问 2：交付方式」。用户选「只做目录」则抽题录写 Markdown（`cnki_rows.js` 的 `href` 即 kcms2 摘要页，每条必须写成 `[题名](href)` 并加 `- 链接：`），不要跑 `cnki_dl.sh`。选「能下则下」或直接丢来题名清单时，再按下面逐篇下载。
 
 #### 1. 准备状态清单（可选但推荐）
 
@@ -158,7 +174,7 @@ python3 /path/to/skills/cnki-download/scripts/pdf_pages.py "文件.pdf"
 
 ## 外文库（摘要）
 
-外文库只给题录 + 摘要 + DOI，**没有**知网全文下载。正确产物是「题录清单 + OA PDF（能下的）+ 机构订阅标注（下不了的）」，不是对知网点 PDF下载。
+外文库只给题录 + 摘要 + DOI，**没有**知网全文下载。正确产物是「带发布页超链接的题录清单 + OA PDF（能下的）+ 机构订阅标注（下不了的）」，不是对知网点 PDF下载。`cnki_bib.py` 会把题名链到 `https://doi.org/{DOI}` 或知网摘要页。
 
 硬约束（细节与命令见 [references/foreign-macos.md](references/foreign-macos.md)，出版社分流见 [references/publisher-oa.md](references/publisher-oa.md)）：
 
@@ -172,9 +188,23 @@ python3 /path/to/skills/cnki-download/scripts/pdf_pages.py "文件.pdf"
 
 ---
 
+## Web of Science（摘要）
+
+用同一套 `osascript` 注入 Chrome，在 Core Collection 的 **Document Search**（`/wos/woscc/basic-search`）做 Topic 检索并抽题录。不要用 Smart Search（提交后可能跳到 Clarivate 个人登录页）。WoS 只给题录 + 入藏号 + 出版社/GetFTR 链接，**没有**站内 PDF；全文与外文库一样走 DOI → `oa_dl.sh`。摘要页 DOI 常缺失，要下的篇再开 `/full-record/WOS:…` 跑 `wos_full.js`。目录条目优先链到 `https://doi.org/{DOI}`，否则用 full-record URL。细节见 [references/wos-macos.md](references/wos-macos.md)。
+
+```bash
+SK="<skill-dir>/scripts"
+"$SK/wos_search.sh" '"value-added assessment"' /tmp/wos.json --pages 1
+python3 "$SK/wos_bib.py" /tmp/wos.json wos文献清单.md --title "Web of Science 文献清单"
+```
+
+机构未登录或跳出 `access.clarivate.com/login` 时停下来让用户走图书馆代理/VPN，不要编账号。结果列表是懒加载，不滚动只能抽到前几条。
+
+---
+
 ## 谷歌学术（摘要）
 
-用同一套 `osascript` 注入 Chrome，在 scholar.google.com 抽题录并写成 Markdown。英文短语同样加引号；一次取 1–2 页，出现 `unusual traffic` 就停下来让用户点验证。Scholar 没有 DOI 字段，清单里先留原文链接和侧栏 PDF。细节见 [references/scholar-macos.md](references/scholar-macos.md)。
+用同一套 `osascript` 注入 Chrome，在 scholar.google.com 抽题录并写成 Markdown。英文短语同样加引号；一次取 1–2 页，出现 `unusual traffic` 就停下来让用户点验证。Scholar 没有 DOI 字段，清单里必须留下原文 href（题名超链接 + `- 链接：`）；无 href 时用侧栏 PDF 兜底。细节见 [references/scholar-macos.md](references/scholar-macos.md)。
 
 ```bash
 SK="<skill-dir>/scripts"
@@ -202,3 +232,4 @@ python3 "$SK/gs_bib.py" /tmp/gs.json 谷歌学术文献清单.md --title "谷歌
 - `scripts/cnki_meta.js` / `cnki_full_doi.js` / `cnki_metaloop.sh` / `cnki_bib.py`
 - `scripts/oa_dl.sh` / `cnki_archive_dl.sh` / `scripts/pub/*.js`
 - `scripts/gs_search.sh` / `gs_rows.js` / `gs_bib.py` —— 谷歌学术检索 + 题录 Markdown
+- `scripts/wos_search.sh` / `wos_rows.js` / `wos_full.js` / `wos_bib.py` —— Web of Science 检索 + 详情 DOI + 题录 Markdown（`wos_oa.js` / `wos_scroll.js` / `wos_next.js` / `wos_status.js` / `wos_dismiss.js`）

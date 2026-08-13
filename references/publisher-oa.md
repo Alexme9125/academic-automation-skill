@@ -6,7 +6,7 @@
 scripts/oa_dl.sh <DOI> <目标文件夹> [归档文件名]
 ```
 
-脚本会请求 `https://doi.org/{DOI}`，按最终域名分流：**能 curl 就 curl**，被反爬再落到 Chrome。
+脚本会请求 `https://doi.org/{DOI}`，按最终域名分流：**能 curl 就 curl**，被反爬再落到 Chrome。写入文献目录时，每条必须有发布页超链接（优先 `https://doi.org/{DOI}`；无 DOI 或 DOI 未注册则用知网摘要页或出版社 HTML）。
 
 ## 各站
 
@@ -22,6 +22,8 @@ scripts/oa_dl.sh <DOI> <目标文件夹> [归档文件名]
 | Stemmpress / Aeph.press | 是 | 打开文章页 | 页内 `/uploadfile/....pdf` | `pub/uploadfile.js` |
 
 未列入的站点：打开 doi.org 跳转后的落地页，跑 `pub/find_pdf.js`，对 `.pdf` / `/article/download/` / `/uploadfile/` 先 curl；`file` 不是 PDF 再页内跳转。
+
+OJS 通用：页上「PDF」常链到 `/article/view/{id}/{galley}`（HTML 阅读器）。改成 `/article/download/{id}/{galley}` 再 curl；`oa_dl.sh` 的兜底挑选已做这一替换。`file` 必须仍是 PDF。
 
 ## curl 模板（脚本已内置）
 
@@ -56,5 +58,5 @@ SAGE / OJS download 走页内跳转时，文件会进 ~/Downloads，同样用 `c
 ## 完整 DOI
 
 - `10.53469/JRVE.2025.7` → 详情页正文才是 `10.53469/JRVE.2025.7(09).12`
-- 个别 DOI 出版社未注册（如 `10.70711/WEF.V3I1.7488` → doi.org 404），只记题录
+- 个别 DOI 出版社未注册（如 `10.70711/WEF.V3I1.7488` → doi.org 404），只记题录，但目录条目仍须有发布页超链接（知网摘要页或出版社 HTML）
 - 归档名前缀用第一作者：`{author}-et-al-{slug}.pdf`
