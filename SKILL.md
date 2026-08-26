@@ -1,7 +1,7 @@
 ---
 name: cnki-download
 description: 按用户给出的文献方向，在知网中文库/外文库、Web of Science 或谷歌学术检索，再按用户选择下载能获取的全文或只整理题录目录。当用户要求从知网下载文献、CNKI、外文文献、WWJD、Web of Science、WoS、WOS、谷歌学术、Google Scholar、按 DOI 下 PDF、整理文献目录、把目录里的文献下下来时使用。未说明网站、语言或交付方式时先问再做。macOS 版依赖已登录的 Chrome 与 AppleScript（osascript）。
-version: 1.4.1
+version: 1.5.1
 ---
 
 # CNKI 文献批量下载与归档（macOS）
@@ -99,10 +99,19 @@ version: 1.4.1
 7. **节奏**：页面跳转 sleep 2–3 秒即可（本机网络好），不要过长等待；每篇之间可再留 2–4 秒以降低触发验证码频率。
 8. 外接硬盘（FAT/exFAT）会产生 `._*` AppleDouble 伴随文件，统计 PDF 数量时排除它们。`mv` 到 exFAT 可能报 `set owner/group ... Operation not permitted`，**文件通常已经移动成功**，用 `ls` 确认即可，不要当成失败重下。
 9. 若要在已打开的检索页改关键词，检索框是 `#txt_search`（class `search-input`），不是 `input[name=kw]`。
+10. **单 tab 原则**：所有页面跳转都用 `scripts/macos_chrome_nav.sh`（`set URL of active tab`，跳转前 `window.stop()`）。中文库 / 外文库 / WoS / Scholar / `oa_dl.sh` / `cnki_metaloop.sh` 均走这一条。不要用 `open -a Chrome URL` 逐篇开新 tab。脚本**不会**自动关掉用户的其它标签。
+11. **短题名（≤6 字）必须给作者**：`cnki_dl.sh` 在未给作者时直接退出 64，不会按包含匹配取首条。匹配规则是**归一化精确优先**；包含匹配仅当「给了作者且本页只剩 1 条」才采纳，多条候选报 AMBIGUOUS，不取首条。短姓名（≤2 字）会被同名淹没：用 `--affiliation "机构"` 或 `--expert "AU='姓名' AND AF='机构'"` / `AND SU='主题'` 收窄。不要把真实学校名写进 skill 或提交到仓库。
+12. **AND 多主题 / 多字段检索走专业检索**：`cnki_dl.sh --expert "SU='学习进阶' AND SU='化学'"`。知网高级检索 UI 的 `.btn-search` 注入事件点不动（mousedown/mouseup/click 都无效），只有专业检索页 `/kns8s/AdvSearch?type=expert` 的 `textarea.textarea-major` + `input.btn-search` 能注入提交。支持 `SU/TI/AU/AF` + `AND/OR/NOT`。`--affiliation "机构"` 会拼成 `TI='题名' AND AU='作者' AND AF='机构'`（已有 `--expert` 则只追加 `AND AF='…'`）并走专业检索。
+13. 题名含 `《》〈〉""——` 的长题名常「暂无数据」：`cnki_dl.sh` 构造检索 URL 前会自动 strip 这些符号；仍 0 命中就拆 token 走 `--expert`（如 `TI='K-12' AND SU='学习进阶'`）。一框式单篇下载用 **`korder=TI`（题名）**，不要用主题 `SU`。
+14. `cnki_dl.sh` NOMATCH 时会自动翻页（默认最多 3 页，`--pages N` 调整，`--pages 0` 关闭），点 `#PageNext` 逐页扫，不必再手写翻页 JS。匹配成功后会等到详情页 URL 含 `kcms2/article/abstract` 再点下载；点完轮询收费页 `bar/fee` 与验证页 `bar/verify`（含「请依次点击」/拼图）。落盘按「点击之后的 mtime + `*_作者` 后缀」取最新文件，不按 `find` 目录序。
 
 ### 工作流
 
 从研究方向检索进来时，先完成上文「问 2：交付方式」。用户选「只做目录」则抽题录写 Markdown（`cnki_rows.js` 的 `href` 即 kcms2 摘要页，每条必须写成 `[题名](href)` 并加 `- 链接：`），不要跑 `cnki_dl.sh`。选「能下则下」或直接丢来题名清单时，再按下面逐篇下载。
+
+#### 0. 开始前先扫工作区
+
+「帮我下载/整理」类任务动手前先 `ls -la`（或 `find . -maxdepth 2`）扫整个工作区：**已存在的目录 = 用户已分类好的资产**，不要覆盖、不要重复下载、不要另建平行目录。在总览文档里先列「已有资源」再列「本次新增」。移动文件到 `/Volumes/...` 外置盘时用 `shutil.move`（跨设备 `os.rename` 报 `Cross-device link`）。
 
 #### 1. 准备状态清单（可选但推荐）
 
@@ -114,9 +123,22 @@ version: 1.4.1
 /path/to/skills/cnki-download/scripts/cnki_dl.sh "检索题名" "第一作者" "/目标/文件夹"
 ```
 
-脚本行为：打开检索页 → 归一化题名精确/包含匹配（自动跳转详情页）→ 点 PDF下载（无则 CAJ下载）→ 轮询 ~/Downloads，等到 `Unconfirmed *.crdownload` 消失后再按 `*_作者.pdf|caj` 归档（Chrome 落盘常要 10 秒以上，固定 sleep 会误判失败）。
-退出码：`0` 成功；`1` 无结果/未匹配/空库（先确认语言标签在「中文」）；`2` 验证码（转人工）；`3` 详情页无下载链接；`4` 文件未落盘；`64` 参数错误。
-stdout 的 `SEARCH[...]:` 行包含匹配到的结果行信息（题名/作者/期刊），用于人工核对是否下对文章。
+脚本行为：打开检索页（题名字段 `korder=TI`）→ 点回「中文」→ 归一化**精确优先**匹配（自动跳转详情页，等到 abstract URL）→ 点 PDF下载（无则 CAJ下载）→ 轮询收费/验证页 → 再轮询 ~/Downloads，等到 `Unconfirmed *.crdownload` 消失后按「点击后最新的 `*_作者.pdf|caj`」归档。
+退出码：`0` 成功；`1` 无结果/未匹配/空库/未到详情页（先确认语言标签在「中文」）；`2` 验证码（转人工）；`3` 详情页无下载链接；`4` 文件未落盘；`5` 收费页（该篇不在机构下载权限内，`bar.cnki.net/bar/fee`，转题录或提示用户）；`64` 参数错误（含短题名未给作者）。
+stdout 的 `SEARCH[...]:` 行包含匹配到的结果行信息（题名/作者/期刊），用于人工核对是否下对文章。作者不符被跳过时带 `@@AM`，本页多条候选带 `@@MULTI`，RESULT 为 `AMBIGUOUS`。
+
+**批量（10+ 篇）用驱动脚本，不要逐条手跑**：
+
+```bash
+# 清单：题名|第一作者|目标文件夹（# 注释）
+python3 /path/to/skills/cnki-download/scripts/cnki_batch.py 清单.txt
+# AND 多主题统一收窄时：
+python3 .../cnki_batch.py 清单.txt --expert "SU='学习进阶' AND SU='化学'" --pages 3
+# 同名作者加机构：
+python3 .../cnki_batch.py 清单.txt --affiliation "机构名"
+```
+
+`cnki_batch.py` 打印 `i/N` 进度、维护同目录 `<清单名>.状态.md`（按序号行定位、幂等，重跑跳过已 ✅）、验证码（退出码 2）时暂停；用户完成拼图回车后**先检查 ~/Downloads 是否已落盘**，已落盘则归档当前篇，不整段重跑。`cnki_status.py` 同时识别「状态在前」和 batch「序号在前」两种表。
 
 每成功一篇，更新状态清单：
 
@@ -127,7 +149,7 @@ python3 /path/to/skills/cnki-download/scripts/cnki_status.py "题名(可只给�
 #### 3. 特殊情形处理
 
 **A. 检索命中多条、首条不是目标文章（NOMATCH 或匹配到相似题名）**
-用「题名精确 + 作者行校验 + 翻页」定位：
+`cnki_dl.sh` 已内置「精确优先 + 作者行校验 + 自动翻页（默认 3 页）」：多条包含匹配不会取首条。通常直接重跑并给对作者即可。仅在需要人工核对结果列表时才用下面的手写 JS：
 
 ```bash
 # 打开检索页后执行（EXPECT、AUTHOR 自行替换）；每页扫一次，未中则点「下一页」再来
@@ -143,7 +165,7 @@ EOF
 告知用户当前标签页显示验证，请其按提示顺序点字并确定；等待用户回复后，按 `*_作者` 后缀在 ~/Downloads 检查该篇是否已落盘，落盘则归档继续。
 
 **C. 题名含特殊符号导致 0 结果**
-去掉 `《》〈〉""` 等符号或截取题目前半段（「——」之前）重检；仍失败则在清单标 ⚠️ 待人工。
+`cnki_dl.sh` 构造检索 URL 前已自动 strip `《》〈〉""——`。仍失败则拆 token 走 `--expert`（如 `TI='K-12' AND SU='学习进阶'`）；再不行在清单标 ⚠️ 待人工。
 
 **D. 只有 CAJ 下载**
 脚本自动下载 .caj 并归档，备注「CAJ格式」（阅读需 CAJViewer，用户可能更想要 PDF，可提示）。
@@ -164,11 +186,22 @@ python3 /path/to/skills/cnki-download/scripts/pdf_pages.py "文件.pdf"
 - 用 `a.click()` 或直接 `open` 下载链接 → 静默失败 / 「来源应用不正确」。
 - 用完整题名匹配下载文件 → 因符号归一化而漏判；用 `_作者` 后缀。
 - 把作者名塞进主题检索 → 0 结果。
-- 相似题名取首条 → 下错文章；必须校验作者行。
-- 精确匹配只在第 1 页找 → 漏掉排后面的目标；要翻页。
+- 相似题名/短题名取首条 → 下错文章；`cnki_dl.sh` 精确优先，短题名无作者直接退出 64。
+- 精确匹配只在第 1 页找 → 漏掉排后面的目标；`cnki_dl.sh` 已自动翻 3 页。
 - 统计时把 `._xxx.pdf` 算进去 → 数量翻倍。
 - sleep 过长拖慢整体；验证码出现却硬闯 → 反复失败。
 - 外文检索后不点回「中文」就搜中文题名 → 「暂无数据」，误当成限流。
+- 用 `open -a Chrome URL` 逐篇开新 tab → 几十篇后上百标签页拖垮 Chrome；用 `macos_chrome_nav.sh`。
+- 脚本里自动 `close other tabs` → 会关掉用户正在用的标签；不要这么做。
+- 用 `AU='短姓名'` 单独检索 → 被同名淹没；加 `--affiliation "机构"` 或 `--expert` 里 `AF='机构'` / `AND SU='主题'`。
+- 跨设备移动用 `os.rename` → `Cross-device link`；用 `shutil.move`（shell 里 `mv` 没这个问题）。
+
+### 已知坑（shell / python 层面）
+
+- **zsh 的 `IFS` 是字符集不是字符串**：`IFS='|||'` 实际只按 `|` 分割，多段字段全乱。批量任务用 Python `subprocess.run` 传 list 或 JSON 传参，不要 shell pipeline 拼多字符分隔符。
+- **macOS 内置盘 ↔ 外置盘是不同设备**：`/Users/...` → `/Volumes/...` 移动文件用 `shutil.move`（copy+delete），`os.rename` 跨设备失败。
+- **JS 注入返回值保持简单**：让 JS 只返回 `location.href` 这类原始值，不要在 JS 里拼字符串再交给 Python 判断（曾因 `split('/').slice(-1)` 丢失路径前缀而误判「未到详情页」）。调试先 print 实际值。
+- **知网下载真正慢的是订单页**：`bar.cnki.net` 要 5–15s 生成下载，Chrome 落盘更慢；轮询上限 ~40s，别固定 sleep 8s 就判失败。
 
 ---
 
@@ -218,10 +251,16 @@ python3 "$SK/gs_bib.py" /tmp/gs.json 谷歌学术文献清单.md --title "谷歌
 
 中文库（保持原流程）：
 
-- `scripts/cnki_dl.sh` —— 单篇下载（打开检索页→点回「中文」→匹配→详情页→PDF/CAJ→等待 crdownload 结束→归档）
+- `scripts/cnki_dl.sh` —— 单篇下载（题名 TI / 专业检索→点回「中文」→精确优先匹配→等详情页→PDF/CAJ→轮询收费/验证→按 mtime 归档）；`--expert`、`--affiliation`、`--pages N`
+- `scripts/cnki_batch.py` —— 批量驱动（清单 `题名|作者|文件夹`、i/N 进度、幂等状态表、验证码先查落盘再决定是否重跑）
+- `scripts/macos_chrome_nav.sh` —— 同 tab 打开 URL
+- `scripts/cnki_page.js` —— 详情/订单/收费/验证码页类型
+- `scripts/cnki_pick_dl.py` —— 按作者后缀 + mtime 挑最新落盘文件
 - `scripts/cnki_chinese.js` —— 点「中文」标签（`a.ch[data-val="Chinese"]`）
-- `scripts/cnki_click.js` —— 详情页触发 PDF/CAJ（`location.href`，含验证码检测）
-- `scripts/cnki_status.py` —— 状态清单行更新
+- `scripts/cnki_next.js` —— 检索页点「下一页」（`#PageNext`）
+- `scripts/cnki_url.js` —— 返回当前 tab 完整 `location.href`
+- `scripts/cnki_click.js` —— 详情页触发 PDF/CAJ（`location.href`，含验证码/收费页检测）
+- `scripts/cnki_status.py` —— 状态清单行更新（两种表头）
 - `scripts/pdf_pages.py` —— PDF 页数（mdls 为空时解析 /Count）
 
 外文库 / 共用：

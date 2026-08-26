@@ -17,6 +17,11 @@ consumed by an AI agent that follows `SKILL.md` and invokes the scripts in `scri
   - `scripts/gs_bib.py`, `scripts/wos_bib.py`, `scripts/cnki_bib.py` — turn a search-result
     JSON (`{"rows": [...]}` or a bare array) into a linked Markdown bibliography.
   - `scripts/cnki_status.py` — update one row in a `下载状态.md` status table.
+  - `scripts/cnki_batch.py` — batch driver over a `title|author|folder` list (stdlib
+    `argparse`/`subprocess`; CAPTCHA pause uses `input()`, so it is not useful unattended
+    on the cloud VM). Syntax-check only on Linux.
+  - `scripts/cnki_pick_dl.py` / `scripts/cnki_status.py` — pick newest download by author
+    suffix + mtime; update a status-table row (two header layouts).
   - `scripts/pdf_pages.py` — print a PDF's page count. On Linux `mdls` is absent, so it uses the
     built-in byte-parsing fallback automatically (works without any extra tools).
 

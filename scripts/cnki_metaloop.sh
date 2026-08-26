@@ -18,7 +18,7 @@ TMP=/tmp/cnki_metaloop_items.jsonl
 while IFS= read -r url || [[ -n "${url:-}" ]]; do
   url="${url%%$'\r'}"
   [[ -z "$url" || "$url" == \#* ]] && continue
-  open -a "Google Chrome" "$url"
+  "$DIR/macos_chrome_nav.sh" "$url"
   sleep 3.5
   META=$("$RUNJS" "$META_JS")
   python3 - "$META" "$url" >> "$TMP" <<'PY'

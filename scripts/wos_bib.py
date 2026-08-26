@@ -112,20 +112,31 @@ def main():
         f'> 检索式：{query}' if query else '> 检索式：（未记录）',
         f'> WoS 计数：{stats}' if stats else '',
         '> 说明：能下的 OA 走 `oa_dl.sh`；「Full Text at Publisher」经常是订阅页。摘要页 DOI 可能为空。',
-        '> 每条均含发布页链接：题名超链接 + 「全文」或「链接」行（优先 https://doi.org/{DOI}，否则 WoS full-record / GetFTR）。',
+        '> 每条均含发布页链接：题名超链接 + 「全文」或「链接」行（优先 https://doi.org/{DOI}，否则 WoS full-record / GetFTR）。无 URL 的条目不写入清单。',
     ]
     chunks = [c for c in chunks if c is not None]
     if args.theme:
         chunks += ['', f'主题：{args.theme}']
     chunks.append('')
-    for i, obj in enumerate(rows, 1):
+    n_out = 0
+    skipped = []
+    for obj in rows:
         if not isinstance(obj, dict):
             continue
-        chunks.append(f'### {i}')
+        link, _src = pub_url(obj)
+        if not link:
+            skipped.append((obj.get('title') or '').strip() or '(无题名)')
+            continue
+        n_out += 1
+        chunks.append(f'### {n_out}')
         chunks.append(entry(obj))
         chunks.append('')
     Path(args.dst).write_text('\n'.join(chunks).rstrip() + '\n', encoding='utf-8')
-    print(f'wrote {len(rows)} entries -> {args.dst}')
+    print(f'wrote {n_out} entries -> {args.dst}')
+    if skipped:
+        print(f'skipped {len(skipped)} without URL:', file=__import__('sys').stderr)
+        for title in skipped:
+            print(f'  {title}', file=__import__('sys').stderr)
 
 
 if __name__ == '__main__':

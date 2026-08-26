@@ -66,7 +66,7 @@ echo "QUERY: $Q"
 echo "QUOTED: $QUOTED"
 SURL='https://www.webofscience.com/wos/woscc/basic-search'
 echo "URL: $SURL"
-open -a "Google Chrome" "$SURL"
+"$DIR/macos_chrome_nav.sh" "$SURL"
 sleep 4.5
 
 ST=$("$RUNJS" "$DIR/wos_status.js")

@@ -291,6 +291,18 @@ Bug reports, testing feedback, and compatibility reports are welcome.
 
 ---
 
+# Changelog / 更新日志
+
+- **1.5.1** (2026-08-26) — 中文库匹配与落盘纠错：题名检索改 `korder=TI`；精确匹配优先（多条包含匹配不再取首条）；短题名无作者退出 64；`--affiliation` 带上 `TI=`/`AU=`；点下载前后轮询详情/收费/验证页；按 mtime 归档；验证码先查落盘；同 tab 导航覆盖 WoS/Scholar/外文；状态表两种表头；无 URL 题录不写入清单。
+- **1.5.0** (2026-08-26) — 中文库下载稳定性：
+  - `cnki_dl.sh`：结果行作者校验（短题名 ≤6 字必须给作者）；`--expert` 专业检索（`SU='A' AND SU='B'`，绕开点不动的高级检索按钮）；`--affiliation` 机构过滤；检索 URL 自动去掉 `《》〈〉""——`；NOMATCH 自动翻最多 3 页（`--pages`）；同 tab `set URL` + 跳转前 `window.stop()`；退出码 5 识别 `bar.cnki.net/bar/fee` 收费页。
+  - 新增 `scripts/cnki_batch.py`：`i/N` 进度、按序号定位的幂等状态表、验证码暂停续传、每 10 篇清理前置窗口多余标签。
+  - 新增 `scripts/cnki_next.js`、`scripts/cnki_url.js`。
+  - `SKILL.md`：动手前先扫工作区、专业检索用法、「已知坑」（zsh `IFS`、跨设备 `shutil.move`、JS 返回值、`bar.cnki.net` 订单页耗时）。
+- **1.4.1** — 知网外文库（WWJD）、带引号短语检索、DOI 补全、出版社 OA 分流（`oa_dl.sh`）、Web of Science / 谷歌学术流程。
+
+---
+
 # Disclaimer / 免责声明
 
 本项目仅提供浏览器自动化及学术工作流辅助功能。

@@ -48,7 +48,7 @@ echo "QUERY: $Q"
 echo "QUOTED: $QUOTED"
 echo "URL: $SURL"
 
-open -a "Google Chrome" "$SURL"
+"$DIR/macos_chrome_nav.sh" "$SURL"
 sleep 2.5
 SETRES=$("$RUNJS" "$SETKW")
 echo "SETKW: $SETRES"

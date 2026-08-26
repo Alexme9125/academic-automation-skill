@@ -66,7 +66,7 @@ echo "HOST: $HOST"
 
 case "$HOST" in
   *sagepub.com)
-    open -a "Google Chrome" "$FINAL"
+    "$DIR/macos_chrome_nav.sh" "$FINAL"
     sleep 3
     PDFURL="https://journals.sagepub.com/doi/pdf/${DOI}?download=true"
     python3 - "$PDFURL" /tmp/oa_jump.js "$DIR/pub/jump.js" <<'PY'
@@ -85,7 +85,7 @@ PY
       archive_tmp
       exit 0
     fi
-    open -a "Google Chrome" "$FINAL"
+    "$DIR/macos_chrome_nav.sh" "$FINAL"
     need_browser find-link "$FINAL"
     exit 3
     ;;
@@ -98,19 +98,19 @@ PY
       archive_tmp
       exit 0
     fi
-    open -a "Google Chrome" "$FINAL"
+    "$DIR/macos_chrome_nav.sh" "$FINAL"
     need_browser find-link "$FINAL"
     exit 3
     ;;
   *springer.com|*link.springer.com)
     ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe='/'))" "$DOI")
     PDFURL="https://link.springer.com/content/pdf/${ENC}.pdf"
-    open -a "Google Chrome" "$PDFURL"
+    "$DIR/macos_chrome_nav.sh" "$PDFURL"
     need_browser save-dialog "$PDFURL"
     exit 3
     ;;
   *scirp.org)
-    open -a "Google Chrome" "$FINAL"
+    "$DIR/macos_chrome_nav.sh" "$FINAL"
     sleep 3
     LINKS=$("$RUNJS" "$DIR/pub/scirp.js")
     echo "PDF_CANDIDATES: $LINKS"
@@ -128,7 +128,7 @@ for line in sys.argv[1].splitlines():
     exit 3
     ;;
   *scholink.org|*bryanhouse*|*jovexplorer*)
-    open -a "Google Chrome" "$FINAL"
+    "$DIR/macos_chrome_nav.sh" "$FINAL"
     sleep 3
     LINKS=$("$RUNJS" "$DIR/pub/scholink.js")
     echo "PDF_CANDIDATES: $LINKS"
@@ -162,7 +162,7 @@ PY
     exit 3
     ;;
   *stemmpress*|*aeph.press*|*haiyangzhiku*)
-    open -a "Google Chrome" "$FINAL"
+    "$DIR/macos_chrome_nav.sh" "$FINAL"
     sleep 3
     LINKS=$("$RUNJS" "$DIR/pub/uploadfile.js")
     echo "PDF_CANDIDATES: $LINKS"

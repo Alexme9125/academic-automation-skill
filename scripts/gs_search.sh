@@ -31,7 +31,7 @@ echo "URL: $SURL"
 URL="$SURL"
 i=1
 while [[ $i -le $PAGES ]]; do
-  open -a "Google Chrome" "$URL"
+  "$DIR/macos_chrome_nav.sh" "$URL"
   sleep 3.2
   RAW=$("$RUNJS" "$ROWS_JS")
   echo "$RAW" > "$WORKDIR/p$i.json"

@@ -96,19 +96,30 @@ def main():
         '',
         '> 检索来源：中国知网·外文库（kns.cnki.net）。外文库只提供题录 + 摘要 + DOI，不提供 PDF/CAJ 下载。',
         '> OA 文献按 DOI 走出版社获取；付费文献走机构订阅。DOI 以详情页最长候选为准（知网头部常截断）。',
-        '> 每条均含发布页链接：题名超链接 + 「全文」或「链接」行（优先 https://doi.org/{DOI}，否则知网摘要页）。',
+        '> 每条均含发布页链接：题名超链接 + 「全文」或「链接」行（优先 https://doi.org/{DOI}，否则知网摘要页）。无 URL 的条目不写入清单。',
     ]
     if args.theme:
         chunks += ['', f'主题：{args.theme}']
     chunks.append('')
-    for i, obj in enumerate(data, 1):
+    n_out = 0
+    skipped = []
+    for obj in data:
         if not isinstance(obj, dict):
             continue
-        chunks.append(f'### {i}')
+        link, _src = pub_url(obj)
+        if not link:
+            skipped.append((obj.get('title') or '').strip() or '(无题名)')
+            continue
+        n_out += 1
+        chunks.append(f'### {n_out}')
         chunks.append(entry(obj))
         chunks.append('')
     Path(args.dst).write_text('\n'.join(chunks).rstrip() + '\n', encoding='utf-8')
-    print(f'wrote {len(data)} entries -> {args.dst}')
+    print(f'wrote {n_out} entries -> {args.dst}')
+    if skipped:
+        print(f'skipped {len(skipped)} without URL:', file=sys.stderr)
+        for title in skipped:
+            print(f'  {title}', file=sys.stderr)
 
 
 if __name__ == '__main__':
