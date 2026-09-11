@@ -38,7 +38,7 @@ file /tmp/out.pdf   # 必须是 PDF document；HTML/XML = 被反爬
 1. `oa_dl.sh` 打开 `content/pdf/{DOI}.pdf`，Chrome 内嵌查看器（`document.contentType == application/pdf`），**不会自动下载**。
 2. Computer Use：Cmd+S → 保存对话框默认文件名常是 DOI 或文章 id。
 3. 点 Save（辅助功能树：「Save」，ID 常为 `OKButton`）。
-4. `scripts/cnki_archive_dl.sh "/目标/文件夹" "归档名.pdf"`
+4. `scripts/cnki_archive_dl.sh "/目标/文件夹" "归档名.pdf" 5 --snapshot "<oa_dl.sh 输出的 DOWNLOAD_SNAPSHOT 路径>"`
 
 SAGE / OJS download 走页内跳转时，文件会进 ~/Downloads，同样用 `cnki_archive_dl.sh`，不必 Cmd+S。
 

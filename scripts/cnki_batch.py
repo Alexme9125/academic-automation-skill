@@ -3,17 +3,21 @@
 # 用法: cnki_batch.py 清单.txt [--expert "SU='A' AND SU='B'"] [--affiliation "机构"] [--pages 3] [--dl /path/to/cnki_dl.sh]
 # 清单格式（竖线分隔；# 开头为注释行，空行跳过）：
 #   题名|第一作者|目标文件夹
-#   作者可留空（短题名必须给全，否则 cnki_dl.sh 退出 64），文件夹可留空（默认 ./downloads）。
-# 状态表：默认写在 清单路径同目录的 <清单名>.状态.md，按序号行定位、幂等；重跑时跳过已 ✅ 的条目。
+#   所有条目必须给第一作者；文件夹可留空（默认 ./downloads）。
+# 状态表：<清单名>.状态.md 为视图；.progress.json 按文献身份和实际文件验证续跑。
 # 验证码（cnki_dl.sh 退出码 2）：暂停等用户完成拼图；回车后先按作者后缀检查 ~/Downloads 是否已落盘，
 # 已落盘则归档当前篇，不再整段重跑（避免打断知网 returnUrl）。
 import argparse
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
+import hashlib
+from pathlib import Path
+from browser_runtime import atomic_json, read_json, BrowserError
+from download_watch import snapshot, wait_download, archive, valid_file
+from cnki_index import norm
 
 EXIT_MAP = {
     0: ('✅', '已下载'),
@@ -48,23 +52,7 @@ def parse_list(path):
 
 def state_path(list_path):
     root, ext = os.path.splitext(list_path)
-    return root + '.状态' + (ext or '.md')
-
-
-STATUS_RE = re.compile(r'^\|\s*(\d+)\s*\|')
-
-
-def load_state(path):
-    """读状态表 -> {序号(1起): 行文本}。序号定位，不靠字符串匹配，天然幂等。"""
-    rows = {}
-    if not os.path.exists(path):
-        return rows
-    with open(path, encoding='utf-8') as f:
-        for line in f:
-            m = STATUS_RE.match(line.rstrip('\n'))
-            if m:
-                rows[int(m.group(1))] = line.rstrip('\n')
-    return rows
+    return root + '.状态.md'
 
 
 def write_state(path, items, rows):
@@ -80,34 +68,36 @@ def set_row(rows, idx, mark, title, note):
     rows[idx] = f'| {idx} | {mark} | {title} | {note} |'
 
 
-def pick_dl(author, since):
-    if not author:
-        return ''
-    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cnki_pick_dl.py')
-    downloads = os.path.join(os.path.expanduser('~'), 'Downloads')
-    r = subprocess.run(
-        [sys.executable, script, downloads, author, str(int(since))],
-        capture_output=True, text=True)
-    return (r.stdout or '').strip()
+def identity(title, author, folder):
+    return hashlib.sha256(('\0'.join((norm(title), author.strip(), str(Path(folder).resolve())))).encode()).hexdigest()
 
 
-def archive_found(src, folder):
-    os.makedirs(folder, exist_ok=True)
-    dest = os.path.join(folder, os.path.basename(src))
-    shutil.move(src, dest)
-    return dest
+def file_record(path):
+    p = Path(path).resolve()
+    if not valid_file(p):
+        return None
+    stat = p.stat()
+    return {'path': str(p), 'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns}
 
 
-def wait_captcha_file(author, folder, since, rounds=20):
-    """验证码通过后 returnUrl 可能已触发下载：先轮询落盘，避免整段重跑。"""
-    for _ in range(rounds):
-        time.sleep(2)
-        path = pick_dl(author, since)
-        if path:
-            dest = archive_found(path, folder)
-            print(f'  验证后已落盘: {os.path.basename(dest)}')
-            return dest
-    return ''
+def verified(record):
+    if not isinstance(record, dict) or not record.get('path'):
+        return False
+    return file_record(record['path']) == {k: record[k] for k in ('path', 'size', 'mtime_ns') if k in record}
+
+
+def existing_exact(title, author, folder):
+    """Import legacy/existing assets only with exact normalized title AND author."""
+    if not Path(folder).is_dir():
+        return None
+    hits = []
+    for p in Path(folder).iterdir():
+        stem = re.sub(r' \(\d+\)$', '', p.stem)
+        suffix = '_' + author
+        if (not p.name.startswith('._') and stem.endswith(suffix)
+                and norm(stem[:-len(suffix)]) == norm(title) and valid_file(p)):
+            hits.append(p)
+    return hits[0] if len(hits) == 1 else None
 
 
 def main():
@@ -116,6 +106,7 @@ def main():
     ap.add_argument('--expert', default='', help="专业检索表达式，如 \"SU='学习进阶' AND SU='化学'\"")
     ap.add_argument('--affiliation', default='', help="机构过滤，转发给 cnki_dl.sh --affiliation")
     ap.add_argument('--pages', type=int, default=3, help='NOMATCH 自动翻页上限（默认 3）')
+    ap.add_argument('--refresh-index', action='store_true', help='重建专业检索链接索引')
     ap.add_argument('--dl', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cnki_dl.sh'),
                     help='cnki_dl.sh 路径')
     args = ap.parse_args()
@@ -124,18 +115,46 @@ def main():
     if not items:
         print('清单为空')
         sys.exit(64)
+    missing = [str(i) for i, (_, author, _) in enumerate(items, 1) if not author.strip()]
+    if missing:
+        print('以下条目缺少第一作者，尚未打开浏览器：' + ', '.join(missing))
+        sys.exit(64)
     sp = state_path(args.list)
-    rows = load_state(sp)
+    rows = {}  # Markdown is a view; never infer identity from a row number or emoji.
+    cp = str(Path(args.list).with_suffix('.progress.json'))
+    manifest = read_json(cp, {'version': 1, 'records': {}})
+    records = manifest.setdefault('records', {})
+    index = str(Path(args.list).with_suffix('.search-index.json'))
+    if args.refresh_index and Path(index).exists():
+        Path(index).unlink()
     total = len(items)
     fails = []
+    attempted = {}
+    downloads = os.environ.get('CNKI_DOWNLOADS_DIR', os.path.expanduser('~/Downloads'))
     for i, (title, author, folder) in enumerate(items, 1):
-        if i in rows and '✅' in rows[i]:
-            print(f'[{i}/{total}] 跳过（已 ✅）: {title}')
-            continue
         folder = folder or 'downloads'
+        key = identity(title, author, folder)
+        record = records.get(key)
+        found = existing_exact(title, author, folder) if record is None else None
+        if found:
+            record = file_record(found)
+            records[key] = record
+            atomic_json(cp, manifest)
+        if verified(record):
+            set_row(rows, i, '✅', title, '已核验 ' + record['path'])
+            write_state(sp, items, rows)
+            print(f'[{i}/{total}] 跳过（文献身份及文件已核验）: {title}')
+            continue
+        if key in attempted:
+            mark, label = attempted[key]
+            set_row(rows, i, mark, title, '本批重复条目：' + label)
+            write_state(sp, items, rows)
+            fails.append((i, title, label))
+            continue
         cmd = [args.dl]
         if args.expert:
             cmd += ['--expert', args.expert]
+            cmd += ['--index', index]
         if args.affiliation:
             cmd += ['--affiliation', args.affiliation]
         cmd += ['--pages', str(args.pages)]
@@ -144,21 +163,51 @@ def main():
         for tri in range(3):
             print(f'[{i}/{total}] 下载: {title} {author} -> {folder}')
             since = time.time()
-            r = subprocess.run(cmd)
+            before = snapshot(downloads)
+            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            print(r.stdout, end='', flush=True)
+            archived = ''
+            if r.returncode == 0:
+                archived = next((line[len('ARCHIVED: '):] for line in r.stdout.splitlines()
+                                 if line.startswith('ARCHIVED: ')), '')
             if r.returncode == 2:
-                input(f'  验证码：请在 Chrome 完成拼图验证后回车（第 {tri + 1}/3 次）… ')
-                if wait_captcha_file(author, folder, since):
+                set_row(rows, i, '⏸', title, '验证码，待人工')
+                write_state(sp, items, rows)
+                try:
+                    input(f'  验证码：请在 Chrome 完成拼图验证后回车（第 {tri + 1}/3 次）… ')
+                except EOFError:
+                    sys.exit(2)
+                try:
+                    path = wait_download(downloads, before, author, since, timeout=40)
+                    archived = str(archive(path, folder))
                     r = subprocess.CompletedProcess(cmd, 0)
                     break
+                except BrowserError as e:
+                    if e.code != 4: raise
                 continue
             break
         if r is None:
             continue
         mark, label = EXIT_MAP.get(r.returncode, ('❌', f'未知退出码 {r.returncode}'))
+        if r.returncode == 0:
+            record = file_record(archived) if archived else None
+            if not record:
+                found = existing_exact(title, author, folder)
+                record = file_record(found) if found else None
+            if record:
+                records[key] = record
+                atomic_json(cp, manifest)
+                label = '已下载 ' + record['path']
+            else:
+                r = subprocess.CompletedProcess(cmd, 4)
+                mark, label = '❌', '成功返回但归档文件未通过核验'
+        attempted[key] = (mark, label)
         set_row(rows, i, mark, title, label)
         write_state(sp, items, rows)
         if r.returncode != 0:
             fails.append((i, title, label))
+        if i < total:
+            time.sleep(2)  # pacing independent of page readiness
     print(f'\n完成：成功 {sum(1 for i_ in range(1, total + 1) if "✅" in rows.get(i_, ""))}/{total}'
           f'，状态表: {sp}')
     if fails:

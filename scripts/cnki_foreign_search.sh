@@ -49,7 +49,7 @@ echo "QUOTED: $QUOTED"
 echo "URL: $SURL"
 
 "$DIR/macos_chrome_nav.sh" "$SURL"
-sleep 2.5
+python3 "$DIR/browser_runtime.py" cnki-form --url "$SURL" --timeout 15 >/dev/null || exit $?
 SETRES=$("$RUNJS" "$SETKW")
 echo "SETKW: $SETRES"
 CLICK=$("$RUNJS" "$DIR/cnki_foreign.js")
@@ -58,12 +58,8 @@ if [[ "$CLICK" == notfound* || -z "$CLICK" ]]; then
   echo "RESULT: NO_FOREIGN_TAB"
   exit 1
 fi
-sleep 2.5
+python3 "$DIR/browser_runtime.py" cnki-results --timeout 25 --minimum 2 >/dev/null || exit $?
 CNT=$("$RUNJS" "$DIR/cnki_count.js")
-if [[ "$CNT" != *'"n":'* ]]; then
-  sleep 2
-  CNT=$("$RUNJS" "$DIR/cnki_count.js")
-fi
 echo "COUNT: $CNT"
 
 N=$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('n') or 0)" "$CNT" 2>/dev/null || echo 0)

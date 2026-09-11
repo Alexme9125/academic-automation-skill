@@ -4,7 +4,7 @@
 
 驱动方式：`scripts/macos_chrome_js.sh file.js`（osascript → Chrome 前置标签）。不要用 CDP / 远程调试，本机常因 `DevToolsActivePort` 失败。
 
-先完成 SKILL.md「对话流程」：网站/语言已确认再检索；有候选后再问「能下则下」还是「只做目录」，不要一出结果就批量 `oa_dl.sh`。
+先完成 [入口](../SKILL.md)的「对话流程」：网站/语言已确认再检索；有候选后再问「能下则下」还是「只做目录」，不要一出结果就批量 `oa_dl.sh`。
 
 ## 工作流
 
@@ -38,7 +38,7 @@ python3 "$SK/cnki_bib.py" meta.json 权威外文文献清单.md --title "外文�
 
 `cnki_meta.js` 会取**最长 DOI**（含 `(09).12` 这类括号段），避免信知网头部的截断 DOI。可疑时再对当前详情页跑 `cnki_full_doi.js`。
 
-清单每条必须含发布页超链接：题名写成 `[题名](url)`，并另写 `- 全文：` 或 `- 链接：`。优先 `https://doi.org/{DOI}`；无 DOI 时用知网 `kcms2/article/abstract` 摘要页。下载成功后把全文行改成 OA 或机构订阅。禁止只写题名/作者、没有 URL。
+目录格式遵循[入口](../SKILL.md)。本模式优先完整 DOI，缺 DOI 则使用知网摘要页；实际下载后更新全文状态。
 
 ### 3. 按 DOI 取全文
 
@@ -76,3 +76,7 @@ python3 "$SK/cnki_bib.py" meta.json 权威外文文献清单.md --title "外文�
 - 把 curl 下来的 HTML/XML 当 PDF 归档（必须 `file`）。
 - 点击筛选后不核对「共找到 N 条」。
 - 外文检索之后直接用中文题名检索却不点回「中文」。语言标签会保留，外文库里搜中文题名会显示「暂无数据」，容易误判成限流。`cnki_dl.sh` 已自动点回中文。
+
+## 进度与恢复
+
+`cnki_metaloop.sh` 的输出旁以 `.progress.json` 保存已完成 URL。相同输入重跑复用已有题录，追加 `--refresh` 重新提取；不要把部分结果当作完整结果。遇验证先让用户处理 Chrome 当前页，再用原命令续跑。`cnki_foreign_search.sh` 每次重新检索并提取当前页，不提供该缓存选项。
