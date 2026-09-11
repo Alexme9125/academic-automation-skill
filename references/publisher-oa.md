@@ -1,62 +1,20 @@
-# 出版社 OA 下载路由（macOS）
+# 出版社全文下载
 
-知网外文库只给题录 + DOI。先用 `cnki_full_doi.js` / `cnki_meta.js` 拿到**完整 DOI**（头部显示的可能被截断），再跑：
+使用[统一命令行](cli.md)的 `download doi`；先从元数据取得完整 DOI。外文库/WoS 没有 CNKI 中文下载按钮，不能调用 `cnki_click.js`。
 
-```bash
-scripts/oa_dl.sh <DOI> <目标文件夹> [归档文件名]
-```
+流程：doi.org 跳转 → 出版社分流 → 可公开请求的真实 PDF → 已登录浏览器页内链接 → 必要时用户保存 → 核验归档。浏览器路径复用当前会话；独立 HTTP 请求不导出用户 cookies。
 
-脚本会请求 `https://doi.org/{DOI}`，按最终域名分流：**能 curl 就 curl**，被反爬再落到 Chrome。写入文献目录时，每条必须有发布页超链接（优先 `https://doi.org/{DOI}`；无 DOI 或 DOI 未注册则用知网摘要页或出版社 HTML）。
-
-## 各站
-
-| 站点 | 直接 curl | 浏览器 | PDF 规律 | 备注 |
-|---|---|---|---|---|
-| SAGE Open | 否（403） | 页内 `location.href` | `journals.sagepub.com/doi/pdf/{DOI}?download=true` | 必须带着详情页 referrer 跳转 |
-| Nature (Sci Rep 等) | 是 | 备用 | `nature.com/articles/{id}.pdf` | curl 带 UA |
-| Frontiers | 是 | 备用 | `/articles/{DOI}/pdf` 或 `/journals/education/articles/{DOI}/pdf` | 先试短路径 |
-| Springer | 否（HTML） | 内嵌 PDF → Cmd+S → Save | `link.springer.com/content/pdf/{DOI}.pdf` | Computer Use 点 Save / OKButton |
-| SCIRP | 是 | 先打开文章页找链接 | `content.scirp.org/pdf/{id}.pdf` | 用 `pub/scirp.js` |
-| Scholink (WJER) | 视情况 | download 链接可落盘 | `/article/download/{id}/{galley}` | `/article/view/` 常返回 XML/PDF.js |
-| BryanHouse (JRVE/JERP) | 常可以 | 备用 | 同上 OJS download | 先 curl download |
-| Stemmpress / Aeph.press | 是 | 打开文章页 | 页内 `/uploadfile/....pdf` | `pub/uploadfile.js` |
-
-未列入的站点：打开 doi.org 跳转后的落地页，跑 `pub/find_pdf.js`，对 `.pdf` / `/article/download/` / `/uploadfile/` 先 curl；`file` 不是 PDF 再页内跳转。
-
-OJS 通用：页上「PDF」常链到 `/article/view/{id}/{galley}`（HTML 阅读器）。改成 `/article/download/{id}/{galley}` 再 curl；`oa_dl.sh` 的兜底挑选已做这一替换。`file` 必须仍是 PDF。
-
-## curl 模板（脚本已内置）
-
-```bash
-curl -sL -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" \
-  -o /tmp/out.pdf "URL"
-file /tmp/out.pdf   # 必须是 PDF document；HTML/XML = 被反爬
-```
-
-## 浏览器保存（Springer 等）
-
-1. `oa_dl.sh` 打开 `content/pdf/{DOI}.pdf`，Chrome 内嵌查看器（`document.contentType == application/pdf`），**不会自动下载**。
-2. Computer Use：Cmd+S → 保存对话框默认文件名常是 DOI 或文章 id。
-3. 点 Save（辅助功能树：「Save」，ID 常为 `OKButton`）。
-4. `scripts/cnki_archive_dl.sh "/目标/文件夹" "归档名.pdf" 5 --snapshot "<oa_dl.sh 输出的 DOWNLOAD_SNAPSHOT 路径>"`
-
-SAGE / OJS download 走页内跳转时，文件会进 ~/Downloads，同样用 `cnki_archive_dl.sh`，不必 Cmd+S。
-
-## 页面摸底脚本
-
-| 文件 | 何时用 |
+| 出版社 | 策略 |
 |---|---|
-| `scripts/pub/find_pdf.js` | 未知站点，先列出 PDF/download 链接 |
-| `scripts/pub/sage.js` | SAGE 详情页 |
-| `scripts/pub/scirp.js` | SCIRP |
-| `scripts/pub/nature.js` | Nature |
-| `scripts/pub/springer.js` | Springer 文章页（找 content/pdf） |
-| `scripts/pub/scholink.js` | Scholink / BryanHouse 等 OJS |
-| `scripts/pub/uploadfile.js` | Stemmpress / Aeph.press |
-| `scripts/pub/jump.js` | 由 `oa_dl.sh` 填 URL 后页内跳转 |
+| Nature | 优先 articles/{id}.pdf，失败后读真实页面链接 |
+| Frontiers | 尝试既有 articles / journals/education PDF 路径，失败后读页面 |
+| SAGE | 在详情页内跳转 DOI PDF 下载链接 |
+| Springer / Springer Nature | 详情页后转 content/pdf，内嵌查看器可能需人工保存 |
+| SCIRP | 提取页面 PDF 链接 |
+| OJS / 其他出版社 | 提取实际链接；article/view/{id}/{galley} 可转换为 article/download |
 
-## 完整 DOI
+只将 `%PDF-` 开头的文件作为 PDF 归档；HTML 收费页或验证页不是 PDF。网络错误、DOI 未注册、无链接及账户权限问题按实际原因记录。
 
-- `10.53469/JRVE.2025.7` → 详情页正文才是 `10.53469/JRVE.2025.7(09).12`
-- 个别 DOI 出版社未注册（如 `10.70711/WEF.V3I1.7488` → doi.org 404），只记题录，但目录条目仍须有发布页超链接（知网摘要页或出版社 HTML）
-- 归档名前缀用第一作者：`{author}-et-al-{slug}.pdf`
+出现 `needs_user` 时，请用户处理当前页面。若显示 PDF，Windows 用浏览器保存按钮或 Ctrl+S，macOS 用保存按钮或 Cmd+S，保存进配置的下载目录；完成后重跑原命令。不要假定 Agent 具有控制系统保存窗口的能力。
+
+同一次下载快照只接受唯一且稳定的新文件；如果用户改了目录或出现多个候选，核对文献后用 `archive --file` 明确文件。不要按最新修改时间随意挑选。归档保留同名旧文件，失败或中断后先核验已有落盘再重试。

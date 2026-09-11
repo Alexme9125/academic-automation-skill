@@ -1,6 +1,8 @@
-# 谷歌学术题录（macOS）
+# 谷歌学术题录（站点细节）
 
-用 Apple Events（`osascript` 注入 Chrome）在 Google Scholar 检索并抽题录，写成文献目录 Markdown。不走 CDP。这是知网外文库的互补来源：Scholar 能覆盖 Sanders TVAAS 等经典文献，知网外文库往往没有。
+> 新版优先使用[统一命令行](cli.md)。下列 `.sh` 示例仅为 macOS 兼容入口；Windows 使用对应的统一命令。站点选择器与匹配规则两平台共用，退出状态以新版 CLI 文档为准。
+
+通过统一浏览器后端在 Google Scholar 检索并抽题录，写成文献目录 Markdown。这是知网外文库的互补来源：Scholar 能覆盖 Sanders TVAAS 等经典文献，知网外文库往往没有。
 
 先完成 [入口](../SKILL.md)的「对话流程」：未指定网站/语言时先问；检索出题录后问「能下则下（侧栏 PDF/OA）还是只做目录」，不要一出结果就批量下 PDF。
 
@@ -33,7 +35,7 @@ python3 "$SK/gs_bib.py" /tmp/gs.json 谷歌学术文献清单.md --title "谷歌
 - Scholar **不提供 DOI 字段**。文献目录每条必须有发布页超链接：题名写成 `[题名](href)`，并写 `- 链接：`；无题名 href（如 `[CITATION]`）时用侧栏 PDF 兜底，并注明。需要 DOI 时打开链接或用 Crossref，再接到 `oa_dl.sh`。禁止只写题名/作者、没有 URL。
 - 侧栏 PDF 很多是镜像，curl 可能 403；能下再用 `file` 验证，否则走机构订阅。
 - 中国网络有时 `scholar.google.com` 打不开，可改 `scholar.google.com.hk`（把 `search_resume.py` 中 Scholar 起始 URL 的主机换掉）。
-- 注入时保持 Chrome 为前置窗口。
+- 使用已连接的标签，不依赖当前前置窗口。
 
 ## 和知网外文库怎么配合
 

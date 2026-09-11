@@ -1,5 +1,8 @@
 # Academic Automation Skill
 
+> **2.0.0-beta.1 cross-platform preview:** shared Python core, Windows Chrome extension backend, and the existing macOS Apple Events backend. Windows website/extension and agent acceptance is pending. Download the Windows or macOS ZIP from the same Release; neither ZIP bundles runtimes. Start with [Windows installation](references/install-windows.md), [macOS installation](references/install-macos.md), and the [shared CLI](references/cli.md).
+
+
 **English** | [简体中文](README.zh-CN.md)
 
 > An AI skill for automating academic literature search and download workflows.
@@ -52,15 +55,11 @@ Academic platforms may change their page structures, authentication mechanisms, 
 
 ### Operating System
 
-Academic Automation Skill currently supports macOS only, as its browser automation functionality relies on Apple Event Kit.
+Windows 10/11: preview support through Playwright CLI and the official Chrome extension; real Windows acceptance is pending.
 
-System requirement:
+macOS: Apple Events remains the default; the extension backend is optional.
 
-macOS 14 or later
-
-Windows support is currently being developed and tested with other contributors. Since Apple Event Kit is unavailable on Windows, these features require a different automation implementation and are not yet available.
-
-Linux is currently unsupported.
+The shared core needs Python 3.9+. For new installations use a supported Python release. The extension backend also needs Node.js 22+ and the pinned npm dependencies. Linux support is limited to offline processing.
 
 ### Browser
 
@@ -82,7 +81,7 @@ Example (Codex / local skills folder):
 cp -R . ~/.agents/skills/cnki-download
 ```
 
-Agent instructions live in `SKILL.md`. Chrome needs **Allow JavaScript from Apple Events**.
+Agent instructions live in `SKILL.md`. The macOS default backend needs **Allow JavaScript from Apple Events**; the extension backend uses the platform installation instructions.
 
 Tested with:
 

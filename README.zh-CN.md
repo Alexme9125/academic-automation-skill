@@ -1,5 +1,8 @@
 # Academic Automation Skill
 
+> **2.0.0-beta.1 跨平台预览版：**共享 Python 核心，Windows 使用 Chrome 官方扩展，macOS 保留 Apple Events。Windows 实机及各 Agent 验收待测试者完成。同一个 Release 提供 Windows/macOS 两个 ZIP，均不捆绑运行环境。请先阅读 [Windows 安装](references/install-windows.md)、[macOS 安装](references/install-macos.md)和[统一命令行](references/cli.md)。
+
+
 [English](README.md) | **简体中文**
 
 > 一份 AI Skill，用来自动化学术文献搜索和下载流程。
@@ -52,15 +55,11 @@ Academic Automation Skill 本身不提供数据库账户，也不提供订阅、
 
 ### 操作系统
 
-由于浏览器自动化相关功能依赖 Apple Event Kit 实现，Academic Automation Skill 目前仅支持 macOS。
+Windows 10/11：通过 Playwright CLI 与官方 Chrome 扩展连接日常浏览器，当前为待实机验收的预览支持。
 
-系统要求：
+macOS：默认通过 Apple Events 控制 Chrome，也可显式选择扩展后端。
 
-macOS 14 或更高版本
-
-Windows 版本正在与其他参与者共同开发和测试。由于 Windows 无法使用 Apple Event Kit，相关功能需要采用不同的自动化实现，所以目前尚不可用。
-
-Linux 目前不支持。
+Python 核心需要 Python 3.9 或更高版本（新安装建议使用仍受支持的版本）。扩展后端还需要 Node.js 22 或更高版本及固定的 npm 依赖。Linux 只声明离线数据处理支持。
 
 ### 浏览器
 
@@ -84,9 +83,9 @@ Linux 目前不支持。
 cp -R . ~/.agents/skills/cnki-download
 ```
 
-Agent 要遵循的操作说明写在 `SKILL.md` 里，Chrome 端还需要勾选 **Allow JavaScript from Apple Events**。
+Agent 操作说明见 `SKILL.md`。macOS 默认后端需勾选 **Allow JavaScript from Apple Events**；Windows 及 macOS 扩展后端按平台安装说明配置。
 
-目前已经在以下环境中进行过测试：
+历史 macOS 版本曾在以下环境中测试；新跨平台版本的兼容性仍需重新验收：
 
 - OpenCode
 - Qoder

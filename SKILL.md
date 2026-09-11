@@ -1,23 +1,23 @@
 ---
 name: cnki-download
-description: 在知网中文/外文库（CNKI、WWJD）、Web of Science（WoS）或谷歌学术检索文献、整理带链接的题录目录，并按题名清单或 DOI 下载可获取的 PDF/CAJ。适用于文献检索、批量下载及归档；浏览器流程使用 macOS 已登录的 Chrome。
+description: 在知网中文/外文库（CNKI、WWJD）、Web of Science（WoS）或谷歌学术检索文献、整理带链接的题录目录，并按题名清单或 DOI 下载可获取的 PDF/CAJ。适用于文献检索、批量下载及归档；浏览器流程沿用用户已登录的 Chrome；Windows 使用官方扩展，macOS 支持 Apple Events。
 metadata:
-  version: "1.6.0"
+  version: "2.0.0-beta.1"
 ---
 
-# 学术文献检索、下载与归档（macOS）
+# 学术文献检索、下载与归档
 
 ## 按任务读取
 
-先确定网站、语言与交付阶段，只读取当前模式对应的参考文档。正常运行直接执行脚本，不预读全部源码、README、排错文档或其它模式。
+先确定网站、语言与交付阶段，优先使用[统一命令行](references/cli.md)，只读取当前模式对应的参考文档。正常运行直接执行脚本，不预读全部源码、README、排错文档或其它模式。
 
 | 用户任务 | 此时读取 | 执行入口 |
 |---|---|---|
-| 知网中文期刊、博硕、会议；中文题名清单 | [中文库](references/chinese-macos.md) | `scripts/cnki_dl.sh`；批量 `cnki_batch.py` |
-| 知网外文、WWJD；摘要页给 DOI 无 PDF/CAJ | [外文库](references/foreign-macos.md) | `cnki_foreign_search.sh` → `cnki_metaloop.sh` → `cnki_bib.py` |
-| Web of Science / WoS / Core Collection | [WoS](references/wos-macos.md) | `wos_search.sh` → `wos_bib.py` |
-| 谷歌学术 / Google Scholar | [Scholar](references/scholar-macos.md) | `gs_search.sh` → `gs_bib.py` |
-| 已有完整 DOI，需要实际下载外文全文 | [出版社下载](references/publisher-oa.md) | `oa_dl.sh`；需要时 `cnki_archive_dl.sh` |
+| 知网中文期刊、博硕、会议；中文题名清单 | [中文库](references/chinese-macos.md) | `download cnki`；批量 `batch` |
+| 知网外文、WWJD；摘要页给 DOI 无 PDF/CAJ | [外文库](references/foreign-macos.md) | `search cnki-foreign` → `metadata` → `bibliography cnki` |
+| Web of Science / WoS / Core Collection | [WoS](references/wos-macos.md) | `search wos` → `bibliography wos` |
+| 谷歌学术 / Google Scholar | [Scholar](references/scholar-macos.md) | `search scholar` → `bibliography scholar` |
+| 已有完整 DOI，需要实际下载外文全文 | [出版社下载](references/publisher-oa.md) | `download doi`；需要时 `archive` |
 | 正常流程失败，需查页面/匹配/归档原因 | [排错](references/troubleshooting-macos.md) | 按退出码只查看相关段落 |
 
 “只做目录”不读取出版社下载和浏览器保存细节。检索阶段不提前加载下载排错。脚本参数、特定站点选择器和经验例外放在上述参考文档；已知入口足够时不要反复读取源码。
@@ -34,12 +34,8 @@ metadata:
 
 ## 共用前提与约束
 
-1. 浏览器流程使用 **macOS + Google Chrome + Apple Events**。沿用用户已登录会话，不导出 cookie。验证注入：
-   ```bash
-   osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.title"'
-   ```
-   若提示 JavaScript from Apple Events is disabled，请用户在 View → Developer 勾选 Allow JavaScript from Apple Events。不要改用 CDP 重建登录态；Windows/Linux 不能直接运行这些浏览器包装脚本，本地 Python 题录处理可独立运行。
-2. 所有跳转使用 `scripts/macos_chrome_nav.sh`，注入使用 `scripts/macos_chrome_js.sh`；针对前置窗口活动标签。保持 Chrome 前置，执行时不要切换活动标签。不要逐篇新开标签，不关闭用户其它标签。
+1. 新用户先读[平台安装](references/install-windows.md)（Windows）或[macOS 安装](references/install-macos.md)。正常任务只读[统一命令行](references/cli.md)中对应命令。默认沿用已登录 Chrome，不导出 cookie；Windows 扩展后端为预览，实机验收状态见 `VERIFICATION.md`。
+2. 使用 `scripts/academic.py` 统一入口；机器调用将 `--json` 放在子命令之前。Windows 使用 `py -3`，macOS 使用 `python3`。浏览器连接后绑定选定标签，同一用户的浏览器任务串行执行。出现 `needs_user` 时停止调度，待用户处理后重跑；原始 shell 入口仅用于兼容 macOS。
 3. CNKI 登录/机构权限在中文或外文模式检查；WoS 机构访问在 basic-search 检查。不要要求 Scholar 或纯离线整理任务先登录知网。机构访问与 WoS 顶栏个人 Sign In 不同。
 4. 外文库/WoS 没有知网式 PDF/CAJ 按钮，禁止对这些详情页运行 `cnki_click.js`。外文全文走完整 DOI → 出版社，或真实可用的 PDF 链接。
 5. 中文下载保留详情页 referrer，通过 `location.href` 跳转。不要直接 open/curl 知网下载地址。语言库状态会跨检索保留，中文检索前点回中文。

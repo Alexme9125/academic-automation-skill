@@ -84,7 +84,7 @@ class EfficiencyTests(unittest.TestCase):
         self.assertEqual(c.value, 2)
 
     def test_missing_author_stops_before_browser(self):
-        result = subprocess.run(['zsh', str(br.DIR/'cnki_dl.sh'), '超过六个字的长文献标题', '', str(self.d)], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, str(br.DIR/'academic.py'), 'download', 'cnki', '超过六个字的长文献标题', '', str(self.d)], capture_output=True, text=True, encoding='utf-8')
         self.assertEqual(result.returncode, 64)
         self.assertIn('NEED_AUTHOR', result.stdout)
         listing = self.d/'list.txt'; listing.write_text('文献甲|作者|'+str(self.d)+'\n文献乙||'+str(self.d))

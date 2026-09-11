@@ -1,3 +1,33 @@
+# 2.0.0-beta.1 跨平台验证（2026-09-12）
+
+本轮环境：macOS（Darwin）、Python 3.9.6、Node.js 26.3.1、Playwright CLI 0.1.19；依赖树由 package-lock.json 固定。Windows 实机由用户安排测试者稍后验收。
+
+## 本轮证据
+
+- 原有 16 项回归测试保留并通过；缺作者的子进程检查改为跨平台入口。
+- 新增跨平台行为测试：JSON 返回值、人工文件恢复、归档中断恢复、批量遇人工步骤停止、浏览器互斥、长脚本文件传递、文件名处理、复制失败保留源文件、包内容与可重复构建等。最终离线运行：34 项通过，1 项隔离浏览器测试按默认设置跳过；该隔离浏览器测试另行启用并通过（19.8 秒）。
+- Playwright CLI 的真实隔离 Chrome 测试通过：中文脚本返回值、导航、模拟 CNKI 题名/作者匹配、详情页跳转、PDF 下载保留 Referer、归档、重复运行不重下，以及模拟出版社公开 PDF 获取。
+- 上述 Chrome 测试使用隔离配置与本机模拟站点；下载目录由测试显式设定。它不证明官方扩展连接、日常浏览器下载目录或真实学术站点权限可用。
+- macOS Apple Events 实机探测发现 Chrome 窗口/标签 id 类型不同，已修复为文本比较。随后得到 Chrome 明确错误：当前关闭 Allow JavaScript from Apple Events。程序返回 needs_user 并提示开启；真实 macOS 学术网站回归未完成。
+- 普通离线测试不需要联网或浏览器；可选浏览器测试在 acceptance.md 中单独说明。
+- 两个平台包的 ZIP 完整性、内容排除规则、同源重复构建字节一致性、解压后的帮助入口已通过测试。Python/JavaScript/shell 语法检查、文档链接和 git diff --check 通过。
+- 系统 skill quick validator 缺 PyYAML，未给产品增加 Python 依赖；使用 Ruby YAML 解析器验证了技能名称、description 与版本元数据。
+
+## 待验收
+
+| 组合 / 场景 | 本轮状态 |
+|---|---|
+| Windows 官方扩展连接日常 Chrome | 待 Windows 测试者 |
+| Windows CNKI、WoS、Scholar、出版社与真实 CAJ | 待 Windows 测试者 |
+| Windows 系统保存窗口与真实跨盘/文件占用 | 待 Windows 测试者；已有离线行为测试 |
+| macOS Apple Events 真实网站回归 | 需先启用 Chrome JavaScript 权限 |
+| macOS 官方扩展与日常下载设置 | 未实测 |
+| Codex / Cursor / OpenCode / Qoder 的新版完整工作流 | 待逐一验收；开发过程使用 Codex 不等同于产品验收 |
+
+新包标为 beta，不公开声明未验证组合已正式支持。构建与测试不创建 tag、不上传 Release。以下 1.6.0 记录保留作历史参考，不代表本轮重新实测。
+
+---
+
 # 效率优化与验证记录
 
 验证日期：2026-09-12。真实浏览器使用 macOS Chrome 与已登录的机构会话；原有题名匹配、作者校验、referrer 下载、验证码暂停及 PDF 类型核验保留。

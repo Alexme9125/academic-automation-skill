@@ -1,34 +1,23 @@
 # AGENTS.md
 
-## Cursor Cloud specific instructions
+This repository is the `cnki-download` AI Skill, not a hosted app.
 
-This repo is an **AI Skill** (`cnki-download`, see `SKILL.md`), not a server/app. It has no
-package manager, dependencies, lockfiles, build system, test suite, linter, or CI. It is
-consumed by an AI agent that follows `SKILL.md` and invokes the scripts in `scripts/`.
+## Architecture
 
-### Platform reality in the cloud VM (Linux)
-- The end-to-end product is **macOS-only**: the `*.sh` wrappers and `*.js` snippets drive a
-  logged-in Google Chrome via `osascript` (Apple Events). `osascript`/Apple Events do **not**
-  exist on the Linux cloud VM, so the browser-automation flow (CNKI / Web of Science / Google
-  Scholar search + download) **cannot be run or demonstrated here**. The `.js` files are Chrome-
-  injected snippets (they reference `document`/`window`), not standalone Node programs.
-- What **is** runnable/testable on Linux is the cross-platform Python data-processing layer
-  (the "literature organization" core). These use only the Python standard library:
-  - `scripts/gs_bib.py`, `scripts/wos_bib.py`, `scripts/cnki_bib.py` — turn a search-result
-    JSON (`{"rows": [...]}` or a bare array) into a linked Markdown bibliography.
-  - `scripts/cnki_status.py` — update one row in a `下载状态.md` status table.
-  - `scripts/cnki_batch.py` — batch driver over a `title|author|folder` list (stdlib
-    `argparse`/`subprocess`; CAPTCHA pause uses `input()`, so it is not useful unattended
-    on the cloud VM). Syntax-check only on Linux.
-  - `scripts/cnki_pick_dl.py` / `scripts/cnki_status.py` — pick newest download by author
-    suffix + mtime; update a status-table row (two header layouts).
-  - `scripts/pdf_pages.py` — print a PDF's page count. On Linux `mdls` is absent, so it uses the
-    built-in byte-parsing fallback automatically (works without any extra tools).
+- `scripts/academic.py` is the portable public CLI. `src/academic_automation/` owns Python business logic; the old `.py` and macOS `.sh` entry points are compatibility wrappers.
+- JavaScript in `scripts/` is injected into a browser page. It is not standalone Node application code.
+- Python core uses only the standard library (Python 3.9+). The optional extension backend uses the pinned `@playwright/cli` in `package.json` and `package-lock.json`; install with `npm ci --ignore-scripts`.
+- macOS defaults to Apple Events; Windows uses the official Playwright Chrome extension. Use the logged-in user's selected tab, never export cookies or copy a browser profile. Agent clients use the same CLI, not client-specific tools.
+- Browser operations acquire the shared local lock. Batch pauses with exit 2 and checkpoints instead of waiting on stdin; manual recovery checks files before issuing another request.
 
-### How to verify the environment (no install needed)
-- Interpreters are preinstalled: `python3` (3.12) and `node` (22).
-- Syntax check everything (closest thing to lint/build):
-  - `python3 -m py_compile scripts/*.py`
-  - `for f in $(find scripts -name '*.js'); do node --check "$f"; done`
-- Smoke-test the Python core by feeding a small JSON to a `*_bib.py` script and inspecting the
-  generated Markdown, e.g. `python3 scripts/gs_bib.py in.json out.md --title "..."`.
+## Verification
+
+- Offline: `python3 -B -X utf8 -m unittest discover -s tests -v`. Node is used for JavaScript fixture tests; no website or account is accessed.
+- Opt-in isolated Chrome transport test: set `ACADEMIC_BROWSER_TESTS=1` and run the tests after installing npm dependencies. This does not validate the official extension or institution sessions.
+- Package: `python3 scripts/build_release.py`; creates two ZIPs and SHA256SUMS in ignored `dist/`, without publishing or tagging.
+- Real platform/site/Agent acceptance is documented in `references/acceptance.md` and `VERIFICATION.md`. Windows real-world testing is assigned to a tester and must not be claimed from macOS results.
+- On Linux, offline processing/tests/building are usable. Do not claim end-to-end academic-browser support without a logged-in desktop browser and specific evidence.
+
+## Maintenance
+
+Keep wrappers compatible, return structured CLI statuses, preserve title/author verification, CNKI page referrer, file checks, and no-overwrite archiving. Update the version only in SKILL.md; package names read that value. Never package browser state, tokens, downloaded papers, node_modules, or local caches. Do not replace source URLs or real metadata with guessed values.

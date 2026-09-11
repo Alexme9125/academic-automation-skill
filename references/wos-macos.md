@@ -1,6 +1,8 @@
-# Web of Science 流程（macOS）
+# Web of Science 流程（站点细节）
 
-用 Apple Events（`osascript` 注入 Chrome）在 Web of Science Core Collection 检索并抽题录。不走 CDP。全文路径与知网外文库相同：**题录 + DOI → `oa_dl.sh`**。WoS **没有**站内 PDF/CAJ 按钮。
+> 新版优先使用[统一命令行](cli.md)。下列 `.sh` 示例仅为 macOS 兼容入口；Windows 使用对应的统一命令。站点选择器与匹配规则两平台共用，退出状态以新版 CLI 文档为准。
+
+通过统一浏览器后端在 Web of Science Core Collection 检索并抽题录。全文路径与知网外文库相同：**题录 + DOI → `oa_dl.sh`**。WoS **没有**站内 PDF/CAJ 按钮。
 
 先完成 [入口](../SKILL.md)的「对话流程」：未指定网站时先问；用户已经说走 WoS 就不要再问。检索出题录后问「能下则下还是只做目录」，不要一出结果就批量 `oa_dl.sh`。
 
@@ -71,7 +73,7 @@ WoS 的「Free Full Text from Publisher」走 GetFTR 网关（`/api/gateway?SrcA
 - **虚拟列表**：不滚动时 JS 只能看到前 2～5 条有 title 的卡片，后面的 `app-record` 是空壳。脚本边滚动边累计各视口题录，以页面槽位、列表底部与连续稳定判断完整性；未确认完整的页面不写入断点。
 - **筛选**：点 Open Access 数字本身不够。必须勾选 `input[aria-label^="Open Access"]` 再点该组 **Refine**。点完核对复选框、筛选状态和标题计数；计数相同不单独证明筛选失败。
 - **Marked List / Export**：导出 EndNote/RIS 不是全文；本流程不做批量 Export。个人未登录时 Marked List 可能不持久。
-- **不要用 curl 抓 WoS HTML**，会丢会话。注入时保持 Chrome 为前置窗口。
+- **不要用 curl 抓 WoS HTML**，会丢会话。使用已连接的标签，不依赖当前前置窗口。
 - 不要对 WoS 详情页跑 `cnki_click.js`。
 
 ## 和知网外文库 / Scholar 怎么配合

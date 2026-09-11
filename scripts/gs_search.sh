@@ -1,4 +1,4 @@
 #!/bin/zsh
-# Resumable search: query out.json [--pages N] [--refresh] [--year YYYY]
+# Compatibility entry point; implementation is shared with Windows.
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec python3 "$DIR/search_resume.py" scholar "$@"
+exec python3 "$DIR/academic.py" search scholar "$@"

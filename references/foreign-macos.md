@@ -1,8 +1,10 @@
-# 知网外文库流程（macOS）
+# 知网外文库流程（站点细节）
+
+> 新版优先使用[统一命令行](cli.md)。下列 `.sh` 示例仅为 macOS 兼容入口；Windows 使用对应的统一命令。站点选择器与匹配规则两平台共用，退出状态以新版 CLI 文档为准。
 
 外文库（WWJD）详情页**没有**「PDF下载 / CAJ下载」。不要跑 `cnki_click.js`。全文只能：完整 DOI → 出版社 OA，或标注机构订阅。
 
-驱动方式：`scripts/macos_chrome_js.sh file.js`（osascript → Chrome 前置标签）。不要用 CDP / 远程调试，本机常因 `DevToolsActivePort` 失败。
+驱动方式以[统一命令行](cli.md)为准：Windows 使用扩展，macOS 可用 Apple Events。不要另开默认配置的远程调试进程或重建登录态。
 
 先完成 [入口](../SKILL.md)的「对话流程」：网站/语言已确认再检索；有候选后再问「能下则下」还是「只做目录」，不要一出结果就批量 `oa_dl.sh`。
 
@@ -15,9 +17,9 @@ SK="<skill-dir>/scripts"
 "$SK/cnki_foreign_search.sh" "value-added assessment" --rows
 ```
 
-脚本会：给英文短语加引号（已有引号则不重复）→ 打开 `korder=SU` 检索页 → 写入 `#txt_search` → 点击 `a.en[data-val="Foreign"]` → 打印 `COUNT`。
+脚本会：给英文短语加引号（已有引号则不重复）→ 打开 `korder=SU` 检索页 → 写入 `#txt_search` → 点击 `a.en[data-val="Foreign"]` → 返回实际总数与当前页提取数。
 
-- 退出码 `2` / `PHRASE_TOO_BROAD`：没加引号导致分词爆炸。改用 `"value-added assessment"` 这种短语，不要把单词拆开。
+- 退出码 `64` / `PHRASE_TOO_BROAD`：没加引号导致分词爆炸。改用 `"value-added assessment"` 这种短语，不要把单词拆开。
 - 退出码 `1` / `ZERO`：缩短短语、去掉过窄限定，或换同义短语再检。
 - **点任何筛选后必须再跑计数**。`cnki_count.js` 的 `n` 与点击前相同 = 未生效。学科类目尤其不可靠，不要当成已过滤。
 - 侧栏「来源类别」（Scopus / SSCI / EI）可以点，同样以计数变化为准。
@@ -48,13 +50,7 @@ python3 "$SK/cnki_bib.py" meta.json 权威外文文献清单.md --title "外文�
 "$SK/oa_dl.sh" "10.1177/21582440251382664" "/目标/文件夹" "chen-et-al-2025-value-added-assessment"
 ```
 
-| 退出码 | 含义 | 接着做什么 |
-|---|---|---|
-| 0 | curl 已归档 | `file` / `PAGES:` 已打印；把清单该条标为 OA |
-| 2 | `DOI_UNREGISTERED` | 出版社未注册该 DOI，只保留题录，不要死磕 curl |
-| 3 | `NEED_BROWSER jump` | 已页内跳转，等 ~/Downloads 出现 PDF，再 `cnki_archive_dl.sh` |
-| 3 | `NEED_BROWSER save-dialog` | 内嵌 PDF 查看器：Computer Use 发 Cmd+S，点 Save（辅助功能树里常是 Save / OKButton），再归档 |
-| 3/4 | `NEED_BROWSER find-link` | 当前页跑 `pub/find_pdf.js`（或对应 `pub/*.js`），找到链接后 curl；不是 PDF 就改浏览器跳转 |
+新流程使用 `download doi`，退出 0 后核对 `result.path`；退出 2 表示待人工保存/登录，处理后重跑同一命令；退出 3 表示未找到链接或 DOI 未注册，查看 message。旧 `oa_dl.sh` 将待人工的返回码映射为 3，其他新代码保持原值；不再解析旧 `NEED_BROWSER` 日志。
 
 站点分流与实测策略见 [publisher-oa.md](publisher-oa.md)。
 
@@ -64,7 +60,7 @@ python3 "$SK/cnki_bib.py" meta.json 权威外文文献清单.md --title "外文�
 
 - 统计时排除 `._*.pdf`。
 - 页数用 `scripts/pdf_pages.py`（mdls 对新文件常为 null，脚本会解析 PDF `/Count`）。
-- exFAT 上 `mv` 报 owner/group 权限可忽略，用 `ls` 确认文件在。
+- 归档使用排他创建与复制，核验后才删除源文件；任何失败先检查实际文件，不直接重下。
 - 向用户汇报：题录 N 篇、OA 全文 N 篇、机构订阅/DOI 未注册清单。
 
 ## 不要做的事
