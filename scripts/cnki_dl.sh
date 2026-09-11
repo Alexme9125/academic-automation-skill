@@ -13,11 +13,13 @@ set -u
 EXPERT=""
 AFF=""
 PAGES=3
+INDEX=""
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --expert) EXPERT="$2"; shift 2 ;;
     --affiliation) AFF="$2"; shift 2 ;;
     --pages) PAGES="$2"; shift 2 ;;
+    --index) INDEX="$2"; shift 2 ;;
     *) echo "未知参数 $1" >&2; exit 64 ;;
   esac
 done
@@ -32,8 +34,12 @@ fi
 T="$1"; A="$2"; F="$3"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 NAV="$DIR/macos_chrome_nav.sh"
-GEN=/tmp/cnki_search_gen.js
-EXPERTGEN=/tmp/cnki_expert_gen.js
+WORKDIR=$(mktemp -d /tmp/cnki_dl.XXXXXX)
+trap 'rm -rf "$WORKDIR"' EXIT
+GEN="$WORKDIR/search.js"
+EXPERTGEN="$WORKDIR/expert.js"
+DOWNLOADS="${CNKI_DOWNLOADS_DIR:-$HOME/Downloads}"
+wait_page() { python3 "$DIR/browser_runtime.py" "$@"; }
 BASE='https://kns.cnki.net/kns8s/defaultresult/index?crossids=YSTT4HG0%2CLSTPFY1C%2CEMRPGLPA%2CJUP3MUPD%2CMPMFIG1A%2CWQ0UVIAA%2CBLZOG7CK%2CPWFIRAGL%2CNLBO1Z6R%2CNN3FJMUV&korder=TI&kw='
 EXPERTURL='https://kns.cnki.net/kns8s/AdvSearch?type=expert'
 
@@ -123,9 +129,8 @@ open(out, 'w', encoding='utf-8').write(js.replace('__EXPR__', json.dumps(expr, e
 PY
 }
 
-NCH=$(python3 -c "import sys;print(sum(1 for ch in sys.argv[1] if ch.isalnum()))" "$T")
-if (( NCH > 0 && NCH <= 6 )) && [[ -z "$A" ]]; then
-  echo "RESULT[$T]: NEED_AUTHOR 短题名(${NCH}字)必须给第一作者，拒绝按包含匹配取首条"
+if [[ -z "${A//[[:space:]]/}" ]]; then
+  echo "RESULT[$T]: NEED_AUTHOR 下载归档必须给第一作者；已在打开浏览器前停止"
   exit 64
 fi
 if [[ -n "$A" && -z "$EXPERT" && -z "$AFF" ]]; then
@@ -162,15 +167,28 @@ PY
   echo "AFFILIATION: $AFF -> $EXPERT"
 fi
 
+INDEX_HIT=""
+index_cmd() { python3 "$DIR/cnki_index.py" "$1" "$INDEX" "$EXPERT" "$PAGES" "$T" "$A"; }
+if [[ -n "$INDEX" && -n "$EXPERT" ]]; then
+  INDEX_HIT=$(index_cmd lookup)
+  if [[ -n "$INDEX_HIT" ]]; then
+    "$NAV" "$INDEX_HIT"
+    index_cmd verify
+    RC=$?
+    [[ $RC -eq 2 || $RC -eq 5 ]] && exit $RC
+    if [[ $RC -ne 0 ]]; then INDEX_HIT=""; fi
+  fi
+fi
+if [[ -z "$INDEX_HIT" ]]; then
 if [[ -n "$EXPERT" ]]; then
   "$NAV" "$EXPERTURL"
-  sleep 3
+  wait_page cnki-form --url "$EXPERTURL" --timeout 15 >/dev/null || exit $?
   ZH=$(runjs_file "$DIR/cnki_chinese.js")
   echo "CHINESE_TAB: $ZH"
-  sleep 2
+  wait_page expert --timeout 10 >/dev/null || exit $?
   gen_expert_js "$EXPERT"
   echo "EXPERT: $(runjs_file "$EXPERTGEN")"
-  sleep 3
+  wait_page cnki-results --timeout 35 --minimum 2 >/dev/null || exit $?
 else
   SURL=$(python3 - "$BASE" "$T" <<'PY'
 import sys, urllib.parse, re
@@ -180,11 +198,33 @@ print(base + urllib.parse.quote(kw))
 PY
 )
   "$NAV" "$SURL"
-  sleep 3
+  wait_page cnki-form --url "$SURL" --timeout 15 >/dev/null || exit $?
   ZH=$(runjs_file "$DIR/cnki_chinese.js")
   echo "CHINESE_TAB: $ZH"
-  sleep 2
+  wait_page cnki-results --timeout 35 --minimum 2 >/dev/null || exit $?
 fi
+
+if [[ -n "$INDEX" && -n "$EXPERT" ]]; then
+  INDEX_HIT=$(index_cmd build)
+  RC=$?
+  [[ $RC -eq 2 || $RC -eq 5 ]] && exit $RC
+  if [[ $RC -ne 0 ]]; then exec "$0" --expert "$EXPERT" --pages "$PAGES" "$T" "$A" "$F"; fi
+  if [[ -n "$INDEX_HIT" ]]; then
+    "$NAV" "$INDEX_HIT"
+    index_cmd verify
+    RC=$?
+    [[ $RC -eq 2 || $RC -eq 5 ]] && exit $RC
+    if [[ $RC -ne 0 ]]; then
+      echo "INDEX_DETAIL_MISMATCH: fallback to live search"
+      exec "$0" --expert "$EXPERT" --pages "$PAGES" "$T" "$A" "$F"
+    fi
+  fi
+fi
+fi
+if [[ -n "$INDEX_HIT" ]]; then
+  INFO="1@@MATCH@@index verified $T $A"
+  echo "INDEX_MATCH: $INDEX_HIT"
+else
 
 gen_js "$T" "$A"
 INFO=""
@@ -212,10 +252,11 @@ done
   CNT="${INFO%%@@*}"
   if [[ "$CNT" =~ ^[0-9]+$ ]] && (( CNT > 0 && page < PAGES )); then
     while (( page < PAGES )); do
+      PREVIOUS=$(wait_page cnki-results --timeout 10) || exit $?
       NEXT=$(runjs_file "$DIR/cnki_next.js")
       [[ "$NEXT" != next* ]] && break
       (( page++ ))
-      sleep 3
+      wait_page cnki-results --timeout 15 --previous "$PREVIOUS" >/dev/null || exit $?
       INFO=$(runjs_file "$GEN")
       echo "PAGE[$page]: $INFO"
       [[ "$INFO" == *@@MATCH@@* ]] && break
@@ -233,6 +274,8 @@ done
 CNT="${INFO%%@@*}"
 [[ "$CNT" == "0" || "$CNT" == "?"* || -z "$CNT" ]] && { echo "RESULT[$T]: NORESULT"; exit 1; }
 
+fi
+
 ST=""
 for _w in 1 2 3 4 5; do
   ST=$(page_kind)
@@ -247,6 +290,8 @@ if [[ "$ST" != detail* ]]; then
   exit 1
 fi
 
+python3 "$DIR/download_watch.py" snapshot "$DOWNLOADS" "$WORKDIR/downloads.json" || exit $?
+SINCE=$(python3 -c "import time; print(time.time())")
 RES=""
 for _c in 1 2 3; do
   RES=$(runjs_file "$DIR/cnki_click.js")
@@ -258,36 +303,13 @@ for _c in 1 2 3; do
 done
 [[ "$RES" == nolink* ]] && { echo "RESULT[$T]: NOLINK"; exit 3; }
 
-SINCE=$(python3 -c "import time; print(int(time.time()))")
-for _b in 1 2 3 4 5 6; do
-  sleep 2
-  ST=$(page_kind)
-  echo "AFTERCLICK: $ST"
-  [[ "$ST" == captcha* ]] && { echo "RESULT[$T]: CAPTCHA"; exit 2; }
-  [[ "$ST" == fee* ]] && { echo "RESULT[$T]: FEE 该篇不在机构下载权限内（知网收费页），转题录或提示用户"; exit 5; }
-  [[ "$ST" == order* || "$ST" == detail* ]] && break
-done
-
-if [[ -z "$A" ]]; then
-  echo "RESULT[$T]: NOTFOUND 未给作者，无法按 *_作者.pdf 安全匹配落盘文件"
-  exit 4
+CAND=$(python3 "$DIR/download_watch.py" wait "$DOWNLOADS" --author "$A" --snapshot "$WORKDIR/downloads.json" --since "$SINCE" --timeout 40 --page)
+RC=$?
+if [[ $RC -ne 0 ]]; then
+  echo "RESULT[$T]: DOWNLOAD_STOP code=$RC"
+  exit $RC
 fi
-CAND=""
-for i in {1..20}; do
-  sleep 2
-  if find "$HOME/Downloads" -maxdepth 1 \( -name '*.crdownload' -o -name 'Unconfirmed *' \) -mmin -5 2>/dev/null | grep -q .; then
-    continue
-  fi
-  CAND=$(python3 "$DIR/cnki_pick_dl.py" "$HOME/Downloads" "$A" "$SINCE")
-  [[ -n "$CAND" ]] && break
-done
-mkdir -p "$F"
-if [[ -n "$CAND" ]]; then
-  mv -n "$CAND" "$F/" 2>/dev/null || mv "$CAND" "$F/"
-  echo "RESULT[$T]: OK $(basename "$CAND")"
-  python3 "$DIR/pdf_pages.py" "$F/$(basename "$CAND")"
-else
-  echo "RESULT[$T]: NOTFOUND"
-  ls -lt ~/Downloads | head -5
-  exit 4
-fi
+ARCHIVED=$(python3 "$DIR/download_watch.py" archive "$CAND" "$F") || exit $?
+echo "ARCHIVED: $ARCHIVED"
+echo "RESULT[$T]: OK $(basename "$ARCHIVED")"
+python3 "$DIR/pdf_pages.py" "$ARCHIVED"

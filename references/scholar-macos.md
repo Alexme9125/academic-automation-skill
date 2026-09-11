@@ -2,7 +2,7 @@
 
 用 Apple Events（`osascript` 注入 Chrome）在 Google Scholar 检索并抽题录，写成文献目录 Markdown。不走 CDP。这是知网外文库的互补来源：Scholar 能覆盖 Sanders TVAAS 等经典文献，知网外文库往往没有。
 
-先完成 SKILL.md「对话流程」：未指定网站/语言时先问；检索出题录后问「能下则下（侧栏 PDF/OA）还是只做目录」，不要一出结果就批量下 PDF。
+先完成 [入口](../SKILL.md)的「对话流程」：未指定网站/语言时先问；检索出题录后问「能下则下（侧栏 PDF/OA）还是只做目录」，不要一出结果就批量下 PDF。
 
 ## 工作流
 
@@ -32,7 +32,7 @@ python3 "$SK/gs_bib.py" /tmp/gs.json 谷歌学术文献清单.md --title "谷歌
 - **不要用 curl 抓 Scholar HTML**，会缺登录态/cookie，也更容易验证码。
 - Scholar **不提供 DOI 字段**。文献目录每条必须有发布页超链接：题名写成 `[题名](href)`，并写 `- 链接：`；无题名 href（如 `[CITATION]`）时用侧栏 PDF 兜底，并注明。需要 DOI 时打开链接或用 Crossref，再接到 `oa_dl.sh`。禁止只写题名/作者、没有 URL。
 - 侧栏 PDF 很多是镜像，curl 可能 403；能下再用 `file` 验证，否则走机构订阅。
-- 中国网络有时 `scholar.google.com` 打不开，可改 `scholar.google.com.hk`（把 `gs_search.sh` 里的主机换掉）。
+- 中国网络有时 `scholar.google.com` 打不开，可改 `scholar.google.com.hk`（把 `search_resume.py` 中 Scholar 起始 URL 的主机换掉）。
 - 注入时保持 Chrome 为前置窗口。
 
 ## 和知网外文库怎么配合
@@ -40,3 +40,7 @@ python3 "$SK/gs_bib.py" /tmp/gs.json 谷歌学术文献清单.md --title "谷歌
 1. Scholar 出题录清单（覆盖面、被引、经典文献）。
 2. 知网外文库补 DOI / 中文平台可获取的篇目。
 3. 有 DOI 的 OA 篇走 `oa_dl.sh`；只有 Scholar PDF 侧栏的先试链接，失败标机构订阅。
+
+## 进度与恢复
+
+检索/元数据输出旁的 `.progress.json` 保存已完成页或 URL。相同输入重跑复用已有记录，`--refresh` 重新获取；不要把部分结果当作完整结果。遇验证先让用户处理 Chrome 当前页，再用原命令续跑。

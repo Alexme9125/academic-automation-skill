@@ -20,6 +20,9 @@ RUNJS="$DIR/macos_chrome_js.sh"
 UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 TMP="/tmp/oa_${$}.pdf"
 mkdir -p "$DEST"
+DOWNLOADS="${CNKI_DOWNLOADS_DIR:-$HOME/Downloads}"
+SNAPSHOT="/tmp/oa_download_${$}.json"
+python3 "$DIR/download_watch.py" snapshot "$DOWNLOADS" "$SNAPSHOT" || exit $?
 
 archive_tmp() {
   local name="$STEM"
@@ -48,6 +51,8 @@ need_browser() {
   local kind="$1"
   local url="$2"
   echo "NEED_BROWSER $kind $url"
+  echo "DOWNLOAD_SNAPSHOT: $SNAPSHOT"
+  echo "ARCHIVE: cnki_archive_dl.sh <目标文件夹> <归档名.pdf> 5 --snapshot $SNAPSHOT"
   echo "NEXT: 若 kind=jump，等 ~/Downloads 出现 PDF 后跑 cnki_archive_dl.sh"
   echo "NEXT: 若 kind=save-dialog，用 Computer Use：Cmd+S → 点 Save（OKButton）→ 再归档"
 }
@@ -67,7 +72,7 @@ echo "HOST: $HOST"
 case "$HOST" in
   *sagepub.com)
     "$DIR/macos_chrome_nav.sh" "$FINAL"
-    sleep 3
+    python3 "$DIR/browser_runtime.py" publisher --url "$FINAL" --timeout 20 >/dev/null || exit $?
     PDFURL="https://journals.sagepub.com/doi/pdf/${DOI}?download=true"
     python3 - "$PDFURL" /tmp/oa_jump.js "$DIR/pub/jump.js" <<'PY'
 import json, sys
@@ -111,7 +116,7 @@ PY
     ;;
   *scirp.org)
     "$DIR/macos_chrome_nav.sh" "$FINAL"
-    sleep 3
+    python3 "$DIR/browser_runtime.py" publisher --url "$FINAL" --timeout 20 >/dev/null || exit $?
     LINKS=$("$RUNJS" "$DIR/pub/scirp.js")
     echo "PDF_CANDIDATES: $LINKS"
     PDF=$(python3 -c "
@@ -129,7 +134,7 @@ for line in sys.argv[1].splitlines():
     ;;
   *scholink.org|*bryanhouse*|*jovexplorer*)
     "$DIR/macos_chrome_nav.sh" "$FINAL"
-    sleep 3
+    python3 "$DIR/browser_runtime.py" publisher --url "$FINAL" --timeout 20 >/dev/null || exit $?
     LINKS=$("$RUNJS" "$DIR/pub/scholink.js")
     echo "PDF_CANDIDATES: $LINKS"
     PDF=$(python3 -c "
@@ -163,7 +168,7 @@ PY
     ;;
   *stemmpress*|*aeph.press*|*haiyangzhiku*)
     "$DIR/macos_chrome_nav.sh" "$FINAL"
-    sleep 3
+    python3 "$DIR/browser_runtime.py" publisher --url "$FINAL" --timeout 20 >/dev/null || exit $?
     LINKS=$("$RUNJS" "$DIR/pub/uploadfile.js")
     echo "PDF_CANDIDATES: $LINKS"
     PDF=$(python3 -c "
@@ -181,8 +186,8 @@ for line in sys.argv[1].splitlines():
     ;;
 esac
 
-open -a "Google Chrome" "$FINAL"
-sleep 3
+"$DIR/macos_chrome_nav.sh" "$FINAL"
+python3 "$DIR/browser_runtime.py" publisher --url "$FINAL" --timeout 20 >/dev/null || exit $?
 LINKS=$("$RUNJS" "$DIR/pub/find_pdf.js")
 echo "PDF_CANDIDATES: $LINKS"
 PDF=$(python3 -c "

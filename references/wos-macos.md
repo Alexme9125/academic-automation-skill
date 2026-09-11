@@ -2,7 +2,7 @@
 
 用 Apple Events（`osascript` 注入 Chrome）在 Web of Science Core Collection 检索并抽题录。不走 CDP。全文路径与知网外文库相同：**题录 + DOI → `oa_dl.sh`**。WoS **没有**站内 PDF/CAJ 按钮。
 
-先完成 SKILL.md「对话流程」：未指定网站时先问；用户已经说走 WoS 就不要再问。检索出题录后问「能下则下还是只做目录」，不要一出结果就批量 `oa_dl.sh`。
+先完成 [入口](../SKILL.md)的「对话流程」：未指定网站时先问；用户已经说走 WoS 就不要再问。检索出题录后问「能下则下还是只做目录」，不要一出结果就批量 `oa_dl.sh`。
 
 ## 工作流
 
@@ -61,15 +61,15 @@ WoS 的「Free Full Text from Publisher」走 GetFTR 网关（`/api/gateway?SrcA
 
 「能下则下」= 完整 DOI 且出版社 OA/侧栏 PDF 能拿到；其余进目录并标机构订阅。「Full Text at Publisher」≠ 免费 PDF。
 
-文献目录每条必须有发布页超链接：题名写成 `[题名](url)`，并写 `- 全文：` 或 `- 链接：`。优先 `https://doi.org/{DOI}`，否则用 WoS `/full-record/WOS:…` 或 GetFTR 落地页。禁止只写题名/作者、没有 URL。
+目录格式遵循[入口](../SKILL.md)。本模式缺 DOI 时使用 WoS full-record 或已核对的 GetFTR 落地页。
 
 ## 注意
 
 - **机构登录**：打开 basic-search 后若跳到 `access.clarivate.com/login` 或提示无权限，停下来让用户走图书馆代理/VPN/机构登录。不要编账号，也不要存 cookie。
 - **人机验证**：标题或正文出现 captcha / robot 时停止（退出码 `2`）。
 - **Cookie / Pendo**：OneTrust「Allow all」和 Pendo 问卷会挡住点击。`wos_search.sh` 会先跑 `wos_dismiss.js`。
-- **虚拟列表**：不滚动时 JS 只能看到前 2～5 条有 title 的卡片，后面的 `app-record` 是空壳。脚本会 `window.scrollBy` 若干次再抽。
-- **筛选**：点 Open Access 数字本身不够。必须勾选 `input[aria-label^="Open Access"]` 再点该组 **Refine**。点完核对标题里的 N 是否变了（例如 75→19）。
+- **虚拟列表**：不滚动时 JS 只能看到前 2～5 条有 title 的卡片，后面的 `app-record` 是空壳。脚本边滚动边累计各视口题录，以页面槽位、列表底部与连续稳定判断完整性；未确认完整的页面不写入断点。
+- **筛选**：点 Open Access 数字本身不够。必须勾选 `input[aria-label^="Open Access"]` 再点该组 **Refine**。点完核对复选框、筛选状态和标题计数；计数相同不单独证明筛选失败。
 - **Marked List / Export**：导出 EndNote/RIS 不是全文；本流程不做批量 Export。个人未登录时 Marked List 可能不持久。
 - **不要用 curl 抓 WoS HTML**，会丢会话。注入时保持 Chrome 为前置窗口。
 - 不要对 WoS 详情页跑 `cnki_click.js`。
@@ -80,3 +80,7 @@ WoS 的「Free Full Text from Publisher」走 GetFTR 网关（`/api/gateway?SrcA
 2. 知网外文库：中文平台可看到的外文题录；DOI 可能被截断。
 3. Scholar：覆盖面和被引；没有 DOI 字段。
 4. 三者能下的 OA 都接到 `oa_dl.sh`。
+
+## 进度与恢复
+
+检索/元数据输出旁的 `.progress.json` 保存已完成页或 URL。相同输入重跑复用已有记录，`--refresh` 重新获取；不要把部分结果当作完整结果。遇验证先让用户处理 Chrome 当前页，再用原命令续跑。
