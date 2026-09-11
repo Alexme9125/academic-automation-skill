@@ -184,6 +184,12 @@ Bug reports, testing feedback, and compatibility reports are welcome.
 
 ## Changelog
 
+- **1.6.0** (2026-09-12) — Lower initial context use and resumable workflows:
+  - Load workflow and troubleshooting references only when needed; reduce `SKILL.md` from 13,696 to 3,108 characters (77.3%).
+  - Wait for stable page content and completed downloads; preserve WoS records recycled by virtual scrolling and detect download-time paywalls or CAPTCHA prompts.
+  - Resume search pages and metadata collection, deduplicate batch entries by document identity, and reuse a 24-hour professional-search index with live detail verification.
+  - Require the first author before starting Chinese downloads; use shared single-tab navigation for unknown publishers.
+  - Add 16 regression tests and [verification results](VERIFICATION.md) covering live CNKI, WoS, Scholar, and OA download workflows.
 - **1.5.1** (2026-08-26) — Chinese library matching and file handling fixes: title search now goes through `korder=TI`; exact matches take priority (several substring matches no longer resolve to the first row); a short title without an author exits with code 64; `--affiliation` carries `TI=`/`AU=` as well; the detail, paywall, and verification pages are polled before and after the download click; files are archived by mtime; after a CAPTCHA the downloaded file is checked first; single-tab navigation now covers WoS, Scholar, and the foreign library; status tables accept two header layouts; bibliographic entries without a URL are no longer written into the list.
 - **1.5.0** (2026-08-26) — Download stability for the Chinese library:
   - `cnki_dl.sh`: author check on the result row (titles of 6 characters or fewer require an author); `--expert` professional search (`SU='A' AND SU='B'`, which works around the advanced search button that ignores injected clicks); `--affiliation` institution filter; `《》〈〉""——` are stripped from the search URL automatically; NOMATCH scans up to 3 result pages (`--pages`); single-tab `set URL` with `window.stop()` before navigating; exit code 5 recognizes the paywall page at `bar.cnki.net/bar/fee`.
