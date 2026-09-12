@@ -8,7 +8,10 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
+import uuid
 from pathlib import Path
+from urllib.parse import urldefrag
 
 from .errors import BrowserError
 from .paths import ROOT, state_dir
@@ -206,11 +209,26 @@ end run'''.replace('WINDOW_ID', str(int(data['window']))).replace('TAB_ID', str(
         return self.target('return execute t javascript (item 1 of argv)', js)
 
     def navigate(self, url):
-        return self.target('''try
+        token = json.dumps(uuid.uuid4().hex)
+        old_url = self.evaluate('(function(){window.__academicNavigationToken=' + token + ';return location.href;})()')
+        self.target('''try
 execute t javascript "window.stop()"
 end try
 set URL of t to (item 1 of argv)
 return "navigated"''', url)
+        if old_url != url and urldefrag(old_url)[0] == urldefrag(url)[0]:
+            return 'navigated'
+        # Chrome accepts set URL before replacing the current document. A marker
+        # distinguishes the old page even when it is complete or has the same URL,
+        # while allowing institution proxies to redirect to a different hostname.
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            committed = self.evaluate('String(window.__academicNavigationToken !== ' + token +
+                                      ' && document.readyState !== "loading")')
+            if committed == 'true':
+                return 'navigated'
+            time.sleep(.25)
+        raise BrowserError('NAVIGATION_TIMEOUT: Chrome has not loaded a new document', 70)
 
 
 def get_browser():

@@ -4,7 +4,7 @@
 
 下载 `academic-automation-v<版本号>-macos.zip` 并解压，将完整 `cnki-download` 文件夹放入 Agent 的技能目录。Python 核心最低 3.9；新安装建议使用 3.11+。
 
-默认后端为 Apple Events：Google Chrome → View → Developer → Allow JavaScript from Apple Events。使用自己的已登录 Chrome，系统首次请求应用自动化权限时按实际需要授权。
+默认后端为 Apple Events，**不需要安装浏览器扩展、Node.js 或 npm 依赖**。启用 Google Chrome → View → Developer → Allow JavaScript from Apple Events。使用自己的已登录 Chrome，系统首次请求应用自动化权限时按实际需要授权。
 
 ```text
 python3 scripts/academic.py --json doctor

@@ -5,6 +5,7 @@ import io
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -191,8 +192,35 @@ class PortableTests(unittest.TestCase):
                     self.assertFalse(any(n.endswith('.sh') for n in names))
                 target = self.root/a.stem; archive.extractall(target)
             skill = target/'cnki-download'
+            for link in re.findall(r'\]\(([^)]+)\)', (skill/'INSTALL.md').read_text(encoding='utf-8')):
+                if not re.match(r'(?:[a-zA-Z][\w+.-]*:|/|#)', link):
+                    self.assertTrue((skill/link.split('#',1)[0]).is_file(), link)
             result = subprocess.run([sys.executable,str(skill/'scripts/academic.py'),'--help'],cwd=str(self.root),capture_output=True,text=True,encoding='utf-8')
             self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_apple_navigation_waits_for_new_document_across_proxy_redirect(self):
+        transport = browser.AppleEventsBrowser()
+        # The complete old document must not satisfy a publisher readiness wait.
+        with patch.object(transport, 'evaluate', side_effect=['https://institution.example/login', 'false', 'false', 'true']) as evaluate, patch.object(transport, 'target') as target, patch.object(browser.time, 'sleep'):
+            self.assertEqual(transport.navigate('https://publisher.example/article'), 'navigated')
+        self.assertEqual(evaluate.call_count, 4)
+        target.assert_called_once()
+        with patch.object(transport, 'evaluate', return_value='https://publisher.example/article#one') as evaluate, patch.object(transport, 'target'):
+            transport.navigate('https://publisher.example/article#two')
+        self.assertEqual(evaluate.call_count, 1)
+
+    def test_readiness_detects_visible_institution_login_only(self):
+        source = (ROOT/'scripts/browser_ready.js').read_text().replace('__OPTIONS__', json.dumps({'mode':'wos-basic'}))
+        for visible in (True, False):
+            fixture = '''const vm=require('vm');
+const password={getClientRects:()=>VISIBLE?[{}]:[]};
+const context={location:{href:'https://institution.example/idp/profile/SAML2/POST/SSO'},window:{innerHeight:900},
+getComputedStyle:()=>({visibility:'visible'}),URL,
+document:{title:'统一身份认证',body:{innerText:'请登录'},readyState:'complete',querySelector:()=>null,
+querySelectorAll:s=>s==='input[type="password"]'?[password]:[]}};
+process.stdout.write(vm.runInNewContext(SOURCE,context));'''.replace('VISIBLE', json.dumps(visible)).replace('SOURCE', json.dumps(source))
+            result = subprocess.run(['node','-e',fixture],capture_output=True,text=True,check=True)
+            self.assertEqual(json.loads(result.stdout)['login'], visible)
 
 
 @unittest.skipUnless(os.environ.get('ACADEMIC_BROWSER_TESTS') == '1','Set ACADEMIC_BROWSER_TESTS=1 for isolated Chrome transport tests')

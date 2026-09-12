@@ -12,7 +12,9 @@
   var captcha = /bar\.cnki\.net\/bar\/verify|sorry\/index|ipv4\/sorry/.test(url)
     || /拼图校验|unusual traffic|are you a robot/i.test(title + body.slice(0, 2000)) || cnkiCaptcha;
   var login = /access\.clarivate\.com\/login/.test(url)
-    || /institutional login required|you do not have access|not licensed/i.test(body.slice(0, 2500));
+    || /institutional login required|you do not have access|not licensed/i.test(body.slice(0, 2500))
+    || (Array.from(document.querySelectorAll('input[type="password"]')).some(visible)
+      && /登录|统一认证|sign[ -]?in|log[ -]?in|authentication/i.test(title + body.slice(0, 2500)));
   var loading = Array.from(document.querySelectorAll('[aria-busy="true"], .loading, .loading-mask, mat-spinner')).some(visible);
   var empty = /暂无数据|没有找到|did not match any articles|No results found/i.test(body);
   var ready = false, content = '', mode = o.mode;

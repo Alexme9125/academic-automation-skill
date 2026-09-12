@@ -57,7 +57,12 @@ def build(root=ROOT, output=None):
                 add(archive, 'academic.cmd', '@echo off\r\nwhere py >nul 2>nul\r\nif errorlevel 1 (\r\n  python "%~dp0scripts\\academic.py" %*\r\n) else (\r\n  py -3 "%~dp0scripts\\academic.py" %*\r\n)\r\nexit /b %errorlevel%\r\n')
             else:
                 add(archive, 'academic.command', '#!/bin/sh\nexec python3 "$(dirname "$0")/scripts/academic.py" "$@"\n', True)
-            add(archive, 'INSTALL.md', (root / 'references' / ('install-' + target + '.md')).read_bytes())
+            instructions = (root / 'references' / ('install-' + target + '.md')).read_text(encoding='utf-8')
+            # INSTALL.md is at the package root, one level above its source.
+            instructions = re.sub(r'\]\(([^)]+)\)', lambda match: '](' + (
+                match[1] if re.match(r'(?:[a-zA-Z][\w+.-]*:|/|#)', match[1])
+                else 'references/' + match[1]) + ')', instructions)
+            add(archive, 'INSTALL.md', instructions)
         hashes.append(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name)
         artifacts.append(path)
     (output / 'SHA256SUMS').write_text('\n'.join(hashes) + '\n', encoding='utf-8')

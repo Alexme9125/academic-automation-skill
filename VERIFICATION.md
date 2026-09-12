@@ -1,30 +1,55 @@
 # 2.0.0-beta.1 跨平台验证（2026-09-12）
 
-本轮环境：macOS（Darwin）、Python 3.9.6、Node.js 26.3.1、Playwright CLI 0.1.19；依赖树由 package-lock.json 固定。Windows 实机由用户安排测试者稍后验收。
+本轮环境：macOS 27.0、Chrome 152.0.7977.83、Python 3.9.6、Node.js 26.3.1、Playwright CLI 0.1.19。Windows 实机由测试者稍后验收；下文明确区分真实网站、隔离模拟站点与离线行为检查。
 
-## 本轮证据
+## macOS 真实网站与安装包
 
-- 原有 16 项回归测试保留并通过；缺作者的子进程检查改为跨平台入口。
-- 新增跨平台行为测试：JSON 返回值、人工文件恢复、归档中断恢复、批量遇人工步骤停止、浏览器互斥、长脚本文件传递、文件名处理、复制失败保留源文件、包内容与可重复构建等。最终离线运行：34 项通过，1 项隔离浏览器测试按默认设置跳过；该隔离浏览器测试另行启用并通过（19.8 秒）。
-- Playwright CLI 的真实隔离 Chrome 测试通过：中文脚本返回值、导航、模拟 CNKI 题名/作者匹配、详情页跳转、PDF 下载保留 Referer、归档、重复运行不重下，以及模拟出版社公开 PDF 获取。
-- 上述 Chrome 测试使用隔离配置与本机模拟站点；下载目录由测试显式设定。它不证明官方扩展连接、日常浏览器下载目录或真实学术站点权限可用。
-- macOS Apple Events 实机探测发现 Chrome 窗口/标签 id 类型不同，已修复为文本比较。随后得到 Chrome 明确错误：当前关闭 Allow JavaScript from Apple Events。程序返回 needs_user 并提示开启；真实 macOS 学术网站回归未完成。
-- 普通离线测试不需要联网或浏览器；可选浏览器测试在 acceptance.md 中单独说明。
-- 两个平台包的 ZIP 完整性、内容排除规则、同源重复构建字节一致性、解压后的帮助入口已通过测试。Python/JavaScript/shell 语法检查、文档链接和 git diff --check 通过。
-- 系统 skill quick validator 缺 PyYAML，未给产品增加 Python 依赖；使用 Ruby YAML 解析器验证了技能名称、description 与版本元数据。
+使用用户已登录的日常 Chrome，默认 Apple Events 后端。启用 Allow JavaScript from Apple Events 后，浏览器连接和脚本执行检查通过；上述测试均未使用 Playwright 官方扩展。
 
-## 待验收
+| 项目 | 结果 |
+|---|---|
+| CNKI 中文完整流程 | 《中高职一体化人才培养增值评价模型研究与应用》，第一作者代奕；题名/作者匹配、详情跳转、下载与归档成功，实际文件为 3 页 PDF |
+| 中文重复运行 | 返回 `cached: true`，校验已有路径和文件后跳过，没有再次下载 |
+| CNKI 外文 | `value-added assessment` 显示 412 条命中，当前页提取 20 条；从 2 篇详情读取题名、作者、期刊与完整 DOI，生成 2 条带链接目录 |
+| 外文题录续跑 | 两篇详情重跑均输出 `META_CACHED`，无需重新导航 |
+| Google Scholar | 两页分别 10 条，最终 20 条去重题录；目录生成成功，重跑两页均使用缓存 |
+| 出版社公开 PDF | DOI `10.54097/JXAZNN10` 经 DRPress 文章页和 OJS download 链接下载归档，核验为 7 页 PDF |
+| WoS 登录与分页 | 首次到机构认证页返回 `needs_user` / 退出码 2；用户登录后从解压包运行，两页分别 50 和 25 条，累计 75 条；目录生成成功，重跑使用两页缓存 |
+| 批量与旧入口 | 3 行清单包含 2 个已下载目标和 1 行重复项，重排前后均按文件核验跳过；包内旧 `cnki_dl.sh` 返回成功 |
+| 断开连接 | 解压包执行 `browser disconnect` 后，Chrome 窗口及标签 id 集合与执行前一致 |
+| 解压包默认环境 | 从含中文和空格路径运行 `academic.command`；不安装 npm 依赖且 PATH 中不提供 Node.js，`doctor --browser` 返回成功，Node 与 Playwright CLI 均报告未安装 |
+
+测试文件和日志在 `/tmp/academic-prerelease-verification/`，安装包测试在 `/tmp/academic-prerelease-package-check/`。只将本次匹配的下载归档到临时目录，没有将文献或浏览器连接状态放入仓库或发布附件。临时目录可能被系统清理。
+
+## 本轮修复
+
+- Chrome 接受页面跳转后，Apple Events 曾在旧文档仍可读取时返回，导致出版社流程误报没有 PDF 链接。现在等待新文档替换旧文档，并兼容机构代理跳转；真实出版社下载及旧文档等待测试通过。
+- WoS 机构认证页此前表现为等待超时，现在识别可见的密码登录表单并提示人工处理；隐藏的登录表单不会触发该判断。
+- 修复安装说明从 `references/` 复制到 ZIP 根目录后相对链接失效的问题；测试逐一检查解压后的本地链接。
+- 上轮已修复 Chrome 窗口/标签 id 的类型差异，本轮真实连接与网站操作通过。
+
+## 离线与隔离验证
+
+- 共 37 项测试：36 项通过，1 项隔离 Chrome 测试默认跳过；原有 16 项全部保留并通过。
+- 单独启用隔离 Chrome 测试通过（20.1 秒）：中文脚本返回值、模拟 CNKI 题名/作者匹配、详情跳转、下载请求 Referer、PDF 归档及重复运行，以及模拟出版社公开 PDF。
+- 隔离 Chrome 使用临时配置和本机模拟站点，下载目录由测试指定。该结果不代表 Windows 官方扩展、日常下载设置或机构权限已验收。
+- 离线检查覆盖人工文件恢复、归档中断恢复、批量遇人工步骤停止、浏览器互斥、复制失败保留源文件、Windows 文件名处理及多候选拒绝等；没有用离线结果代替真实 Windows 测试。
+- 两个平台 ZIP 的完整性、内容排除规则、同源重复构建字节一致性、解压后帮助入口和安装说明链接检查通过。
+- 35 个 Python 文件、31 个 JavaScript 文件与 9 个 shell 文件的语法检查通过。
+
+## 尚待验收
 
 | 组合 / 场景 | 本轮状态 |
 |---|---|
 | Windows 官方扩展连接日常 Chrome | 待 Windows 测试者 |
-| Windows CNKI、WoS、Scholar、出版社与真实 CAJ | 待 Windows 测试者 |
-| Windows 系统保存窗口与真实跨盘/文件占用 | 待 Windows 测试者；已有离线行为测试 |
-| macOS Apple Events 真实网站回归 | 需先启用 Chrome JavaScript 权限 |
-| macOS 官方扩展与日常下载设置 | 未实测 |
-| Codex / Cursor / OpenCode / Qoder 的新版完整工作流 | 待逐一验收；开发过程使用 Codex 不等同于产品验收 |
+| Windows CNKI、WoS、Scholar 与出版社流程 | 待 Windows 测试者 |
+| Windows 真实跨盘归档、文件占用与系统保存窗口 | 待 Windows 测试者；已有离线行为测试 |
+| macOS 官方扩展与扩展下载设置 | 未实测 |
+| 真实 CAJ、验证码完成后的自动续下、特殊 PDF 保存窗口 | 本轮未实测；人工文件恢复有离线测试 |
+| Codex | 本轮由 Codex 调用统一入口完成上述 macOS 检索与下载；不代表其他平台已通过 |
+| Cursor / OpenCode / Qoder | 新版完整调用流程待逐一验收 |
 
-新包标为 beta，不公开声明未验证组合已正式支持。构建与测试不创建 tag、不上传 Release。以下 1.6.0 记录保留作历史参考，不代表本轮重新实测。
+本版作为 Pre-Release 分发。以下 1.6.0 记录仅供历史参考，不能用于填补本轮未测项。
 
 ---
 

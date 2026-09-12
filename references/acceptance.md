@@ -15,7 +15,7 @@ python3 scripts/academic.py --json doctor
 
 ## 真实浏览器验收
 
-1. 使用日常已登录 Chrome，运行 `browser connect`，在官方扩展界面选定标签，运行 `doctor --browser` 确认标题与 URL。
+1. 使用日常已登录 Chrome，运行 `browser connect`。Windows 默认及 macOS 可选扩展后端须在官方扩展界面选定标签；macOS 默认 Apple Events 后端直接绑定当前标签，须先启用 Allow JavaScript from Apple Events。运行 `doctor --browser` 确认标题与 URL。
 2. CNKI 中文：用自己有访问权限的一篇论文的完整题名和第一作者下载；核对题名作者、PDF/CAJ 类型、实际路径。输出目录使用含中文和空格的路径。
 3. CNKI 外文：检索一页，提取两条详情元数据，核对完整 DOI 和生成的链接目录。
 4. Scholar：检索两页，核对重复 URL 去重和重复运行的缓存使用。WoS：检索两页，核对虚拟列表累计数量。
