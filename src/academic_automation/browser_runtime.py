@@ -56,7 +56,9 @@ def wait_ready(mode, timeout=20, url='', previous='', minimum=1.0):
     while time.monotonic() - start < timeout:
         state = json.loads(run_js(js))
         if state.get('captcha') or state.get('login'):
-            raise BrowserError('LOGIN_OR_CAPTCHA: complete verification in Chrome', 2)
+            raise BrowserError('LOGIN_OR_CAPTCHA: complete verification in Chrome', 2, {'url': state.get('url', '')})
+        if state.get('not_found'):
+            raise BrowserError('PAGE_NOT_FOUND: refresh the source link for the same article', 3, {'url': state.get('url', '')})
         if state.get('fee'):
             raise BrowserError('FEE: institution has no download access', 5)
         fingerprint = state.get('signature')

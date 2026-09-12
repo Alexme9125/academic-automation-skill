@@ -180,9 +180,15 @@ def metadata(args):
                 # Preserve the observed URL rather than relabeling stale content.
                 state['records'][url] = obj
                 atomic_json(cp, state)
-            except BrowserError:
+            except BrowserError as exc:
+                state.setdefault('errors', {})[url] = {'message': str(exc), 'code': exc.code}
+                atomic_json(cp, state)
                 atomic_json(args.output, completed)
-                raise
+                raise BrowserError(str(exc), exc.code, {**exc.details, 'failed_url': url,
+                    'output': str(Path(args.output).resolve()), 'completed_records': len(completed),
+                    'progress': str(Path(cp).resolve())}) from exc
+            state.get('errors', {}).pop(url, None)
+            atomic_json(cp, state)
             print('META: ' + url)
             time.sleep(2)
         else:
@@ -201,13 +207,13 @@ def main():
     ap.add_argument('--oa', action='store_true'); ap.add_argument('--refresh', action='store_true')
     ap.add_argument('--meta-script', default=str(DIR / 'cnki_meta.js'))
     args = ap.parse_args()
-    from .browser import browser_lock
-    try:
-        with browser_lock():
-            metadata(args) if args.mode == 'meta' else search(args)
-    except (BrowserError, ValueError) as e:
-        print(str(e), file=sys.stderr)
-        sys.exit(getattr(e, 'code', 1))
+    from . import cli
+    call = ['metadata', args.query, args.output, '--meta-script', args.meta_script] if args.mode == 'meta' else [
+        'search', args.mode, args.query, args.output, '--pages', str(args.pages)]
+    if args.refresh: call.append('--refresh')
+    if args.year: call += ['--year', args.year]
+    if args.oa: call.append('--oa')
+    sys.exit(cli.main(call))
 
 
 if __name__ == '__main__':

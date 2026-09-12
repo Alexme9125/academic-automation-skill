@@ -173,7 +173,13 @@ def download(title, author, dest, expert='', affiliation='', pages=3, index_path
     if result.startswith('nolink'):
         state['status'] = 'no_link'; br.atomic_json(checkpoint, state)
         raise BrowserError('NOLINK: detail page has no PDF/CAJ link', 3)
-    candidate = dw.wait_download(folder, state['before'], author, state['since'], timeout=40, page=True)
+    try:
+        candidate = dw.wait_download(folder, state['before'], author, state['since'], timeout=40, page=True)
+    except BrowserError as exc:
+        if exc.code in (2, 4):
+            raise BrowserError('NEEDS_USER: inspect verification or save the current download in Chrome', 2,
+                {'checkpoint': str(checkpoint), 'downloads': str(folder), 'cause': str(exc)}) from exc
+        raise
     return finish_download(candidate, dest, checkpoint, state)
 
 

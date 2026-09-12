@@ -51,7 +51,7 @@ def candidates(folder, before, author='', since=0):
         p = Path(folder) / name
         if name.startswith('._') or p.suffix.lower() not in ('.pdf', '.caj'):
             continue
-        if author and not re.search('_' + re.escape(author) + r'(?: \(\d+\))?\.(?:pdf|caj)$', name, re.I):
+        if author and not re.search('_' + re.escape(author) + r'(?:\s*\(\d+\))?\.(?:pdf|caj)$', name, re.I):
             continue
         if not author and p.suffix.lower() != '.pdf':
             continue

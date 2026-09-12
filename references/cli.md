@@ -44,6 +44,25 @@ python3 scripts/academic.py download doi "10.xxxx/完整DOI" "文献目录" --na
 
 单篇进度保存在目标目录的 `.academic-downloads/`。验证码、登录或 PDF 保存窗口需人工处理；处理后重跑原命令，先检查本次快照之后的文件，再决定是否继续。没有新文件会保持暂停；明确需要重新请求时才加 `--retry`。批量遇人工步骤立即退出，不等待无交互终端输入，也不继续打开下一篇。
 
+## 人工交接与调度约束
+
+`needs_user` 是暂停状态，尚未判定该文献无法获取。Agent 必须向用户提出具体问题，例如“《题名》的出版社页面正在进行人机验证，请在当前 Chrome 标签完成后回复我；若希望跳过这篇，请明确说明”，随后等待实际回复。没有提问工具的 Harness 使用普通消息并结束当前执行轮，保留任务待续；超时不是用户回复。不能仅给“建议稍后手动下载”就把任务标记完成。
+
+程序在本机状态目录保存 `pending-user.json`。返回值附带 `wait_for_user: true`、`may_continue_browser: false`、`pending.id` 及可复用的 `resume_argv` 参数数组。此时其他检索、元数据、下载及旧导航/JS 入口会返回 2；更换会话名或加 `--retry` 不会解除暂停。离线题录整理、查看 `browser status`、环境检查与断开连接仍可执行。
+
+用户完成当前页面操作并回复后，先检查是否已有文件：重跑原下载命令可仅核验文件并完成检查点，`archive --file ... --checkpoint ...` 也可明确归档当前篇。若仍需网页操作，记录本次实际回复再运行原命令：
+
+```text
+python3 scripts/academic.py --json browser status
+python3 scripts/academic.py --json browser resolve --pending-id "返回的 pending.id" --decision retry --note "用户实际回复"
+```
+
+`resolve` 成功只表示已记录决定，不表示文献已下载。随后重跑 `resume_argv` 对应的原任务（批量可重跑原清单），先查文件再进行一次恢复尝试。再次遇到验证时重新暂停；获准恢复期间其他文章仍被拦住。
+
+只有用户明确要求跳过当前篇才调用 `browser resolve --pending-id "..." --decision skip --note "用户实际回复"`，记录为 `skipped_by_user`，不能改写成“无权限”。重跑已跳过条目返回退出码 6 / `skipped`；批量会保留跳过状态并继续其余篇目。用户后来要求重新尝试，可用原 `pending-id` 再记录 `retry` 决定。
+
+不要编造用户回复、删除暂停文件、切换状态目录，或绕到自写 curl/浏览器脚本继续任务。该机制约束本项目入口；拥有本地命令权限的模型仍能绕开它，所以 Harness 也应在接到 `needs_user` 后中止浏览器调度，并且仅在收到用户消息后提供 `resolve` 调用。
+
 自动归档要求唯一、稳定且格式符合的候选。用户手动另存为时，中文文件名应保留 `_第一作者.pdf` / `_第一作者.caj` 后缀；不符合时使用显式文件归档：
 
 ```text
@@ -54,16 +73,17 @@ python3 scripts/academic.py archive "文献目录" --file "下载目录/实际�
 
 ## Agent 返回值
 
-`--json` 输出一个 JSON 对象：`ok`、`status`、`code`、`result`。诊断信息在 stderr；文件输出仍为原有 Markdown / JSON。`status` 为 `complete`、`needs_user`、`busy` 或 `failed`。
+`--json` 输出一个 JSON 对象：`ok`、`status`、`code`、`result`。诊断信息在 stderr；文件输出仍为原有 Markdown / JSON。`status` 为 `complete`、`needs_user`、`skipped`、`busy` 或 `failed`。
 
 | 退出码 | 含义 |
 |---|---|
 | 0 | 请求的操作完成；检索范围由页数限定 |
 | 1 | 无结果、匹配歧义或流程未完成 |
 | 2 | 需要登录、验证码、浏览器连接或人工保存 |
-| 3 | 未发现下载链接 / DOI 未注册，查看 message |
+| 3 | 未发现正文下载链接 / DOI 未注册 / 来源页失效，查看 message |
 | 4 | 无唯一、稳定且有效的下载文件 |
 | 5 | 收费页或当前账户无访问权限 |
+| 6 | 用户已明确跳过，不能当成下载成功或无权限 |
 | 64 | 参数错误 |
 | 69 | 缺运行环境 |
 | 70 | 浏览器协议、超时或网络错误；动作可能已完成，先检查 |

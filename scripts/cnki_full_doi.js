@@ -7,6 +7,7 @@
     var found = [], m;
     while ((m = re.exec(text))) {
       var d = m[0].replace(/[.,;:]+$/, '');
+      d = d.replace(/[?&#]utm_[^=]+=[\s\S]*$/i, '');
       var open = (d.match(/\(/g) || []).length;
       var close = (d.match(/\)/g) || []).length;
       while (close > open) {

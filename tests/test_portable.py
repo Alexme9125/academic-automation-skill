@@ -244,13 +244,18 @@ class ChromeTransportTests(unittest.TestCase):
                         def log_message(self, *args): pass
                         def do_GET(self):
                             requests.append((self.path, self.headers.get('Referer','')))
-                            if self.path.startswith('/download'):
+                            if self.path.startswith('/download') or self.path == '/protected.pdf':
+                                if self.path == '/protected.pdf' and '/protected-article' not in self.headers.get('Referer', ''):
+                                    self.send_response(202); self.end_headers()
+                                    self.wfile.write(b'<html>Browser request required</html>'); return
                                 content = b'%PDF-1.4\n1 0 obj <</Type /Pages /Count 1>> endobj\n%%EOF'
                                 self.send_response(200)
                                 self.send_header('Content-Type','application/pdf')
                                 self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote('测试论文_张三.pdf'))
                             else:
-                                if self.path.startswith('/kcms2/article/abstract'):
+                                if self.path == '/protected-article':
+                                    content = '<title>Protected article</title><p>' + ('Article body. '*40) + '</p><a href="/protected.pdf">Article PDF</a>'
+                                elif self.path.startswith('/kcms2/article/abstract'):
                                     content = '<title>测试论文 - 中国知网</title><div class="author">张三</div><p>摘要：'+('测试摘要。'*60)+'</p><a href="/download.pdf">PDF下载</a>'
                                 else:
                                     content = '<title>检索</title><input id="txt_search"><a class="ch" data-val="Chinese">中文</a><p>共找到 1 条</p><table><tbody><tr><td><a href="/kcms2/article/abstract?filename=fixture">测试论文</a></td><td>张三</td></tr></tbody></table>'
@@ -276,6 +281,10 @@ class ChromeTransportTests(unittest.TestCase):
                         with patch.object(publisher,'resolve_doi',return_value=base+'/kcms2/article/abstract'):
                             result = publisher.download('10.1234/fixture',Path(folder)/'publisher')
                         self.assertTrue(dw.valid_file(result['path']))
+                        with patch.dict(os.environ,{'CNKI_DOWNLOADS_DIR':str(downloads)}), patch.object(publisher,'resolve_doi',return_value=base+'/protected-article'):
+                            result = publisher.download('10.1234/protected',Path(folder)/'browser-publisher')
+                        self.assertTrue(dw.valid_file(result['path']))
+                        self.assertTrue(any(path == '/protected.pdf' and '/protected-article' in ref for path, ref in requests))
                     finally:
                         server.shutdown(); server.server_close(); thread.join(timeout=3)
                     transport.navigate('about:blank')

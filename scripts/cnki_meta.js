@@ -7,6 +7,7 @@
     var found = [], m;
     while ((m = re.exec(text))) {
       var d = m[0].replace(/[.,;:]+$/, '');
+      d = d.replace(/[?&#]utm_[^=]+=[\s\S]*$/i, '');
       var open = (d.match(/\(/g) || []).length;
       var close = (d.match(/\)/g) || []).length;
       while (close > open) {
@@ -24,7 +25,7 @@
       var h = a.href || '';
       var m = h.match(/doi\.org\/(10\.\d{4,9}\/[^\s?#]+)/i);
       if (m) out.push(decodeURIComponent(m[1]));
-      var d = pickLongestDoi(h);
+      var d = m ? '' : pickLongestDoi(h);
       if (d) out.push(d);
     });
     out.sort(function(a, b){ return b.length - a.length; });
@@ -40,7 +41,7 @@
     var l = lines[i];
     if (!out.doi_header) {
       m = l.match(/DOI[：:]\s*(10\.\d{4,9}\/[^\s]+)/i);
-      if (m) out.doi_header = m[1].replace(/[.,;]+$/, '');
+      if (m) out.doi_header = pickLongestDoi(m[1]);
     }
     if (!out.authors && /^(作者|Author)s?[：:]/i.test(l)) {
       out.authors = l.replace(/^(作者|Author)s?[：:]\s*/i, '').slice(0, 300);

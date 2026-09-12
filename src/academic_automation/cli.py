@@ -2,6 +2,7 @@
 import argparse
 import contextlib
 import importlib
+import hashlib
 import json
 import os
 import platform
@@ -12,7 +13,7 @@ import time
 import subprocess
 from pathlib import Path
 
-from . import browser, browser_runtime as br, cnki, publisher, download_watch as dw
+from . import browser, browser_runtime as br, cnki, publisher, download_watch as dw, interaction
 from .errors import BrowserError
 from .paths import ROOT, downloads_dir
 
@@ -47,7 +48,8 @@ def parser():
     p.add_argument('--downloads-dir', help='Chrome actual download directory')
     sub = p.add_subparsers(dest='command', required=True, parser_class=Parser)
     d = sub.add_parser('doctor'); d.add_argument('--browser', action='store_true', help='Also test the connected tab')
-    b = sub.add_parser('browser'); b.add_argument('action', choices=['connect', 'disconnect', 'status'])
+    b = sub.add_parser('browser'); b.add_argument('action', choices=['connect', 'disconnect', 'status', 'resolve'])
+    b.add_argument('--pending-id'); b.add_argument('--decision', choices=['retry', 'skip']); b.add_argument('--note')
     s = sub.add_parser('search'); s.add_argument('source', choices=['cnki-foreign', 'scholar', 'wos'])
     s.add_argument('query'); s.add_argument('output'); s.add_argument('--pages', type=int, default=1)
     s.add_argument('--year', default=''); s.add_argument('--oa', action='store_true'); s.add_argument('--refresh', action='store_true')
@@ -78,7 +80,14 @@ def doctor(probe=False):
     node_version = subprocess.run([node, '--version'], capture_output=True, text=True, timeout=10).stdout.strip() if node else ''
     node_ready = bool(re.match(r'^v(\d+)\.', node_version) and int(re.match(r'^v(\d+)\.', node_version).group(1)) >= 22)
     ready = bool(shutil.which('osascript')) if backend == 'apple-events' else bool(node_ready and installed == expected)
+    fingerprint = hashlib.sha256()
+    sources = [ROOT / 'SKILL.md', ROOT / 'package-lock.json']
+    for folder in ('src', 'scripts', 'references'):
+        sources.extend(p for p in (ROOT / folder).rglob('*') if p.is_file() and p.suffix in ('.py', '.js', '.sh', '.md'))
+    for source in sorted(sources):
+        fingerprint.update(source.relative_to(ROOT).as_posix().encode() + b'\0' + source.read_bytes() + b'\0')
     result = {'version': version(), 'platform': platform.system(), 'python': platform.python_version(),
+              'code_fingerprint': fingerprint.hexdigest(),
               'backend': backend, 'runtime_ready': ready, 'browser_verified': False,
               'node': node, 'node_version': node_version, 'playwright_cli_expected': expected, 'playwright_cli_installed': installed,
               'downloads': str(downloads_dir()), 'downloads_exists': downloads_dir().is_dir(),
@@ -97,9 +106,14 @@ def dispatch(a):
             raise BrowserError('MISSING_RUNTIME: see runtime checks', 69, result)
         return result
     if a.command == 'browser':
+        if a.action == 'resolve':
+            return interaction.resolve(a.pending_id, a.decision, a.note)
         if a.action == 'status':
             return {'backend': browser.backend_name(), 'session': browser.session_name(), 'connection': browser.read_session(),
+                    'pending': interaction.read(),
                     'note': 'Saved connection metadata; use doctor --browser for a live check'}
+        if a.action == 'connect' and interaction.read() and not interaction.read().get('user_confirmed'):
+            interaction.blocked(interaction.read())
         return getattr(browser.get_browser(), a.action)()
     if a.command == 'search':
         if a.oa and a.source != 'wos':
@@ -127,7 +141,9 @@ def dispatch(a):
             if getattr(a, key): args += ['--' + key.replace('_', '-')]
         invoke('cnki_batch', args)
         from .cnki_batch import state_path
-        return {'state': str(Path(state_path(a.input)).resolve()), 'checkpoint': str(Path(a.input).with_suffix('.progress.json').resolve())}
+        checkpoint = Path(a.input).with_suffix('.progress.json').resolve()
+        return {'state': str(Path(state_path(a.input)).resolve()), 'checkpoint': str(checkpoint),
+                **br.read_json(checkpoint, {}).get('summary', {})}
     if a.command == 'bibliography':
         args = [a.input, a.output, '--theme', a.theme]
         if a.title: args += ['--title', a.title]
@@ -164,14 +180,19 @@ def main(argv=None):
         # Batch child processes acquire their own lock; there is no interactive stdin.
         with contextlib.redirect_stdout(sys.stderr):
             with browser.browser_lock() if needs_lock else contextlib.nullcontext():
-                result = dispatch(a)
+                if a.command in ('search', 'metadata', 'download') or (a.command == 'archive' and a.checkpoint):
+                    result = interaction.execute(a, [sys.executable, str(ROOT / 'scripts/academic.py'), *argv], lambda: dispatch(a))
+                else:
+                    result = dispatch(a)
     except BrowserError as exc:
         code = exc.code; result = {'message': str(exc), **exc.details}
+        if code == 2 and interaction.read():
+            result.update(interaction.details())
     except (OSError, ValueError) as exc:
         code = 74; result = {'message': str(exc)}
     except KeyboardInterrupt:
         code = 130; result = {'message': 'Interrupted; repeat the command to resume saved progress'}
-    status = 'complete' if code == 0 else 'needs_user' if code == 2 else 'busy' if code == 75 else 'failed'
+    status = 'complete' if code == 0 else 'needs_user' if code == 2 else 'skipped' if code == 6 else 'busy' if code == 75 else 'failed'
     response = {'ok': code == 0, 'status': status, 'code': code, 'result': result}
     if as_json:
         print(json.dumps(response, ensure_ascii=False))

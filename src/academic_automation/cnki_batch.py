@@ -27,6 +27,7 @@ EXIT_MAP = {
     3: ('❌', '详情页无下载链接'),
     4: ('❌', '文件未落盘'),
     5: ('⚠️', '收费页/不在机构权限内'),
+    6: ('⏭', '用户明确跳过'),
     64: ('❌', '参数错误'),
 }
 
@@ -153,7 +154,8 @@ def main():
             mark, label = attempted[key]
             set_row(rows, i, mark, title, '本批重复条目：' + label)
             write_state(sp, items, rows)
-            fails.append((i, title, label))
+            if mark != '⏭':
+                fails.append((i, title, label))
             continue
         cmd = [args.dl] if args.dl else [sys.executable, str(SCRIPTS / 'academic.py'), 'download', 'cnki']
         if args.retry and not args.dl:
@@ -214,11 +216,15 @@ def main():
         attempted[key] = (mark, label)
         set_row(rows, i, mark, title, label)
         write_state(sp, items, rows)
-        if r.returncode != 0:
+        if r.returncode not in (0, 6):
             fails.append((i, title, label))
         if i < total:
             time.sleep(2)  # pacing independent of page readiness
-    print(f'\n完成：成功 {sum(1 for i_ in range(1, total + 1) if "✅" in rows.get(i_, ""))}/{total}'
+    manifest['summary'] = {'downloaded': sum('✅' in rows.get(i, '') for i in range(1, total + 1)),
+                           'skipped_by_user': sum('⏭' in rows.get(i, '') for i in range(1, total + 1)),
+                           'failed': len(fails), 'total': total}
+    atomic_json(cp, manifest)
+    print(f'\n完成：成功 {manifest["summary"]["downloaded"]}/{total}，用户跳过 {manifest["summary"]["skipped_by_user"]}'
           f'，状态表: {sp}')
     if fails:
         print('未成功清单：')

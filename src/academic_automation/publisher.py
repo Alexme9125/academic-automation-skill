@@ -13,6 +13,7 @@ from . import browser_runtime as br, download_watch as dw
 from .cnki import pending_path, resume_download, finish_download
 from .errors import BrowserError
 from .paths import downloads_dir
+from .doi import normalize as normalize_doi
 
 UA = 'Mozilla/5.0 Chrome/130.0 Safari/537.36'
 
@@ -55,17 +56,28 @@ def direct_pdf(url, target):
 
 def pdf_candidates(links):
     candidates = []
-    for line in links.splitlines():
-        if '@@' not in line:
-            continue
-        label, url = line.split('@@', 1)
+    if links.lstrip().startswith('['):
+        rows = json.loads(links)
+    else:
+        rows = [dict(zip(('label', 'url'), line.split('@@', 1)))
+                for line in links.splitlines() if '@@' in line]
+    for row in rows:
+        label, url = row.get('label', ''), row.get('url', '')
         url = url.strip(); low = url.lower(); score = 0
         if not url.startswith(('https://', 'http://')):
             continue
+        # Supplements are valid PDFs too. Never promote them to article full text.
+        if (row.get('supplement') or re.search(r'appendix|supplement|supporting (?:info|material)|附录|补充材料', label, re.I)
+                or re.search(r'(?:^|[/_.-])(?:app\d+|appendix\w*|supp(?:lement(?:ary)?)?\d*|suppl\w*)\.pdf(?:[?#]|$)', low)):
+            continue
         if '.pdf' in low or '/article/download/' in low or '/uploadfile/' in low:
-            score = 4
+            score = 2
         if 'pdf' in label.lower():
-            score = max(score, 2)
+            score = max(score, 5)
+        if re.search(r'/pdf(?:[/?#]|$)', low):
+            score = max(score, 5)
+        if row.get('source') == 'citation_pdf_url':
+            score = 8
         if re.search(r'/article/view/\d+/\d+', url):
             url = url.replace('/article/view/', '/article/download/', 1)
             score = max(score, 3)
@@ -81,7 +93,7 @@ def host_is(host, suffix):
 
 
 def download(doi, dest, name='', retry=False):
-    doi = re.sub(r'^https?://(?:dx\.)?doi\.org/', '', doi.strip(), flags=re.I)
+    doi = normalize_doi(doi)
     if not re.fullmatch(r'10\.\d{4,9}/\S+', doi):
         raise BrowserError('A complete DOI is required', 64)
     name = dw.safe_name(name or doi.replace('/', '_'))
@@ -106,7 +118,7 @@ def download(doi, dest, name='', retry=False):
         path = Path(tmp) / 'article.pdf'
         for url in direct:
             if direct_pdf(url, path):
-                return finish_download(path, dest, checkpoint, {'doi': doi}, name)
+                return finish_download(path, dest, checkpoint, {'doi': doi, 'source_url': url, 'name': name}, name)
         br.navigate(final)
         br.wait_ready('publisher', 25)  # institution proxy redirects may change hostname.
         if host_is(host, 'sagepub.com'):
@@ -118,20 +130,24 @@ def download(doi, dest, name='', retry=False):
             links = pdf_candidates(br.run_file(script))
         for url in links[:3]:
             if not host_is(host, 'sagepub.com') and direct_pdf(url, path):
-                return finish_download(path, dest, checkpoint, {'doi': doi}, name)
+                return finish_download(path, dest, checkpoint, {'doi': doi, 'source_url': url, 'name': name}, name)
     if not links:
-        raise BrowserError('NOLINK: publisher page has no identifiable PDF link', 3, {'url': final})
+        raise BrowserError('NOLINK: publisher page has no identifiable main-article PDF link; access status remains unknown', 3, {'url': final})
     folder = downloads_dir()
     if not folder.is_dir():
         raise BrowserError('Set --downloads-dir to Chrome\'s actual download directory', 64)
     state = {'status': 'waiting', 'doi': doi, 'downloads': str(folder.resolve()),
              'before': dw.snapshot(folder), 'since': time.time(), 'url': links[0], 'name': name}
     br.atomic_json(checkpoint, state)
-    script = (br.DIR / 'pub/jump.js').read_text(encoding='utf-8').replace('__URL__', json.dumps(links[0]))
+    script = (br.DIR / 'pub/jump.js').read_text(encoding='utf-8')
+    script = re.sub(r'__URL__|__NAME__', lambda m: json.dumps(links[0] if m[0] == '__URL__' else name), script)
     br.run_js(script)
     try:
         path = dw.wait_download(folder, state['before'], since=state['since'], timeout=12, page='publisher')
     except BrowserError as exc:
+        if exc.code == 2:
+            raise BrowserError(str(exc), 2, {**exc.details, 'checkpoint': str(checkpoint),
+                                           'downloads': str(folder), 'url': links[0]}) from exc
         if exc.code != 4:
             raise
         raise BrowserError('NEEDS_USER: if Chrome displays a PDF, save it into the configured download directory, then repeat this command', 2,

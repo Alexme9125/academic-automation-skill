@@ -1,6 +1,16 @@
-// 在当前页把 location.href 跳到指定 URL（SAGE 等必须页内跳转才触发下载）。
-// 由 oa_dl.sh 生成 /tmp 副本并替换 __URL__。
+// Call only after the publisher article page passed the challenge/login probe.
+// The download attribute is a same-origin hint; cross-origin links use navigation.
 (function(){
-  location.href = __URL__;
+  var target = new URL(__URL__, location.href);
+  if (target.origin === location.origin) {
+    var a = document.createElement('a');
+    a.href = target.href;
+    a.download = __NAME__;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return 'download-requested';
+  }
+  location.href = target.href;
   return 'jumped';
 })()

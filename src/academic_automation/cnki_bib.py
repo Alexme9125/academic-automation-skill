@@ -4,6 +4,7 @@
 # 用法: cnki_bib.py in.json out.md [--title "清单标题"] [--theme "主题说明"]
 import argparse, json, sys
 from pathlib import Path
+from .doi import normalize
 
 
 def first_author(authors: str) -> str:
@@ -23,7 +24,7 @@ def as_http(s: str) -> str:
 
 
 def doi_link(doi: str) -> str:
-    doi = (doi or '').strip()
+    doi = normalize(doi)
     if not doi:
         return ''
     if doi.lower().startswith('http://') or doi.lower().startswith('https://'):
@@ -33,7 +34,7 @@ def doi_link(doi: str) -> str:
 
 def pub_url(obj):
     """Return (url, source) from doi / url / href / pdf. source is doi|cnki|href|pdf|''."""
-    doi = (obj.get('doi') or obj.get('doi_header') or '').strip()
+    doi = normalize(obj.get('doi') or obj.get('doi_header'))
     page = as_http(obj.get('url') or '') or as_http(obj.get('href') or '') or as_http(obj.get('link') or '')
     pdf = as_http(obj.get('pdf') or '')
     if doi:
@@ -50,7 +51,7 @@ def entry(obj: dict) -> str:
     authors = (obj.get('authors') or '').strip() or '（未提取）'
     journal = (obj.get('journal') or '').strip()
     year = (obj.get('year') or '').strip()
-    doi = (obj.get('doi') or obj.get('doi_header') or '').strip()
+    doi = normalize(obj.get('doi') or obj.get('doi_header'))
     abstract = (obj.get('abstract') or '').strip()
     link, src = pub_url(obj)
     heading = f'**[{title}]({link})**' if link else f'**{title}**'
@@ -64,7 +65,7 @@ def entry(obj: dict) -> str:
         lines.append(f'- DOI：{doi}')
     if link:
         if src == 'doi':
-            lines.append(f'- 全文：{link}  （先按出版社路由尝试 OA；失败则标机构订阅）')
+            lines.append(f'- 全文：{link}  （出版社发布页；获取状态待实际下载核验）')
         elif src == 'cnki':
             lines.append(f'- 链接：{link}  （知网摘要页；无 DOI）')
         elif src == 'pdf':

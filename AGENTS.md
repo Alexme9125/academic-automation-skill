@@ -9,6 +9,7 @@ This repository is the `cnki-download` AI Skill, not a hosted app.
 - Python core uses only the standard library (Python 3.9+). The optional extension backend uses the pinned `@playwright/cli` in `package.json` and `package-lock.json`; install with `npm ci --ignore-scripts`.
 - macOS defaults to Apple Events; Windows uses the official Playwright Chrome extension. Use the logged-in user's selected tab, never export cookies or copy a browser profile. Agent clients use the same CLI, not client-specific tools.
 - Browser operations acquire the shared local lock. Batch pauses with exit 2 and checkpoints instead of waiting on stdin; manual recovery checks files before issuing another request.
+- `needs_user` persists an interaction handoff across commands. Do not equate it with an unavailable paper. Only an actual user reply authorizes `browser resolve`; automatic file recovery may complete an already saved download first. Keep legacy entry points on the same guard and exit-code contract.
 
 ## Verification
 
