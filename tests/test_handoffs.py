@@ -177,8 +177,8 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(error.exception.code,4)
 
     def test_cnki_file_timeout_is_pending_not_unavailable(self):
-        with patch.object(cnki,'locate'),patch.object(br,'run_file',return_value='clicked'),patch.object(dw,'wait_download',side_effect=BrowserError('NOTFOUND',4)):
-            with self.assertRaises(BrowserError) as error:cnki.download('论文','张三',self.root/'papers')
+        with patch.dict(os.environ, {'ACADEMIC_BROWSER_BACKEND':'apple-events'}),patch.object(cnki,'locate'),patch.object(br,'run_file',return_value='clicked'),patch.object(dw,'wait_download',side_effect=BrowserError('NOTFOUND',4)):
+            with self.assertRaises(BrowserError) as error:cnki._download('论文','张三',self.root/'papers')
         self.assertEqual(error.exception.code,2)
         self.assertTrue(Path(error.exception.details['checkpoint']).exists())
 

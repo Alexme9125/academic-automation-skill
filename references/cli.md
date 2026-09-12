@@ -13,13 +13,15 @@ python3 scripts/academic.py --backend extension --json doctor --browser
 python3 scripts/academic.py --backend extension browser disconnect
 ```
 
-`doctor` 只检查本机运行环境，不能证明扩展、登录或机构访问可用。`doctor --browser` 才读取连接标签的标题和 URL。首次扩展连接会出现官方扩展授权和标签选择界面；使用自己的账户完成。不同 Skill 副本共享本机浏览器任务锁，不会并行抢占。断开连接保留用户的 Chrome。
+`doctor` 只检查本机运行环境，不能证明扩展、登录或机构访问可用。扩展 `browser connect` 在附着后实际读取标签标题和 URL，检查通过才保存连接状态；`doctor --browser` 可再次验证。首次扩展连接会出现官方扩展授权和标签选择界面；使用自己的账户完成。不同 Skill 副本共享本机浏览器任务锁，不会并行抢占。断开连接保留用户的 Chrome。
 
 同一任务后续命令使用相同 `--backend` / `--session`，也可通过 `ACADEMIC_BROWSER_BACKEND` / `ACADEMIC_BROWSER_SESSION` 设置。默认会话名 `academic`。浏览器重启或目标标签关闭后重新连接。不要导出 cookie 或复制浏览器用户配置。
 
 ## 检索、元数据与题录
 
 ```text
+python3 scripts/academic.py search cnki "项目式学习" chinese.json --pages 2
+python3 scripts/academic.py search cnki "SU='孟德尔随机化' AND SU='近视'" chinese.json --expert
 python3 scripts/academic.py search scholar "value-added assessment" scholar.json --pages 2
 python3 scripts/academic.py search wos "value-added assessment" wos.json --pages 2 --oa
 python3 scripts/academic.py search cnki-foreign "value-added assessment" cnki.json --pages 1
@@ -32,6 +34,8 @@ python3 scripts/academic.py bibliography cnki metadata.json bibliography.md
 `urls.txt` 每行一个真实详情页 URL。CNKI 外文结果先提取详情元数据再生成外文题录；中文结果行不能伪装成完整外文元数据。Scholar 支持 `--year YYYY`、1–5 页；WoS 支持 `--oa`。检索和元数据用 `--refresh` 重取，其余时候复用 `.progress.json`。CNKI 外文中断后可能需要重新经过前面页面，但保留已抽取记录。
 
 ## 中文与 DOI 下载
+
+自定义 Harness 或编排脚本也使用本页的统一 CLI，不直接导入 `cnki.download`、`publisher.download` 或内部检索函数；直接调用返回 `USE_UNIFIED_CLI` / 64，以免遗漏任务锁与人工交接。私有实现不是受支持的外部 API。
 
 ```text
 python3 scripts/academic.py download cnki "论文完整题名" "第一作者" "文献目录"
@@ -58,6 +62,8 @@ python3 scripts/academic.py --json browser resolve --pending-id "返回的 pendi
 ```
 
 `resolve` 成功只表示已记录决定，不表示文献已下载。随后重跑 `resume_argv` 对应的原任务（批量可重跑原清单），先查文件再进行一次恢复尝试。再次遇到验证时重新暂停；获准恢复期间其他文章仍被拦住。
+
+页面等待超时和跳转竞态属于暂时性错误，返回 70，保留已有 pending；批量在 70 或 75 时也停止，不打开下一篇。只读探测会有限重试上下文切换，点击、提交和下载不会因此自动重放。检查当前页面及下载文件后，再恢复原任务。
 
 只有用户明确要求跳过当前篇才调用 `browser resolve --pending-id "..." --decision skip --note "用户实际回复"`，记录为 `skipped_by_user`，不能改写成“无权限”。重跑已跳过条目返回退出码 6 / `skipped`；批量会保留跳过状态并继续其余篇目。用户后来要求重新尝试，可用原 `pending-id` 再记录 `retry` 决定。
 

@@ -111,8 +111,8 @@ class PortableTests(unittest.TestCase):
         br.atomic_json(cp, {'status':'waiting', 'downloads':str(self.root), 'before':dw.snapshot(self.root), 'since':0})
         self.pdf()
         with patch.object(cnki, 'locate') as locate:
-            first = cnki.download('论文', '张三', dest)
-            second = cnki.download('论文', '张三', dest)
+            first = cnki._download('论文', '张三', dest)
+            second = cnki._download('论文', '张三', dest)
         locate.assert_not_called()
         self.assertEqual(first['path'], second['path'])
         self.assertTrue(second['cached'])
@@ -121,7 +121,7 @@ class PortableTests(unittest.TestCase):
         dest = self.root/'archive'; cp = cnki.pending_path(dest, batch.identity('论文', '张三', dest))
         br.atomic_json(cp, {'status':'waiting', 'downloads':str(self.root), 'before':{}, 'since':0})
         with patch.object(dw, 'wait_download', side_effect=BrowserError('not found',4)), patch.object(cnki, 'locate') as locate:
-            with self.assertRaises(BrowserError) as error: cnki.download('论文','张三',dest)
+            with self.assertRaises(BrowserError) as error: cnki._download('论文','张三',dest)
         self.assertEqual(error.exception.code,2); locate.assert_not_called()
 
     def test_explicit_manual_archive_finishes_checkpoint(self):
@@ -132,7 +132,7 @@ class PortableTests(unittest.TestCase):
             code = cli.main(['--json','archive',str(dest),'--file',str(manual),'--name','论文_张三.pdf','--checkpoint',str(cp)])
         self.assertEqual(code,0)
         with patch.object(cnki,'locate') as locate:
-            result = cnki.download('论文','张三',dest)
+            result = cnki._download('论文','张三',dest)
         locate.assert_not_called(); self.assertTrue(result['cached'])
 
     def test_archive_recovery_after_move_before_checkpoint(self):
@@ -157,7 +157,7 @@ class PortableTests(unittest.TestCase):
         br.atomic_json(str(output)+'.progress.json', {'version':1,'config':{'mode':'cnki-foreign','query':'assessment'},
             'pages':{'1':{'rows':[{'title':'A','href':'https://example.org/a'}]}},'records':{}})
         with patch.object(br,'navigate') as navigate:
-            result = cnki.foreign_search('assessment',output)
+            result = cnki._foreign_search('assessment',output)
         navigate.assert_not_called(); self.assertEqual(result['n'],1)
 
     def test_publisher_candidates_preserve_ojs_download_and_ignore_non_http(self):
@@ -226,6 +226,12 @@ process.stdout.write(vm.runInNewContext(SOURCE,context));'''.replace('VISIBLE', 
 @unittest.skipUnless(os.environ.get('ACADEMIC_BROWSER_TESTS') == '1','Set ACADEMIC_BROWSER_TESTS=1 for isolated Chrome transport tests')
 class ChromeTransportTests(unittest.TestCase):
     def test_pinned_cli_and_real_page_scripts(self):
+        def task(args):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output): code = cli.main(['--json', *args])
+            response = json.loads(output.getvalue())
+            self.assertEqual(code, 0, response)
+            return response['result']
         with tempfile.TemporaryDirectory(prefix='academic-chrome-') as folder:
             env = {'PWTEST_DAEMON_SESSION_DIR':str(Path(folder)/'daemon'),
                    'ACADEMIC_STATE_DIR':str(Path(folder)/'state'), 'ACADEMIC_BROWSER_BACKEND':'extension',
@@ -256,9 +262,14 @@ class ChromeTransportTests(unittest.TestCase):
                                 if self.path == '/protected-article':
                                     content = '<title>Protected article</title><p>' + ('Article body. '*40) + '</p><a href="/protected.pdf">Article PDF</a>'
                                 elif self.path.startswith('/kcms2/article/abstract'):
-                                    content = '<title>测试论文 - 中国知网</title><div class="author">张三</div><p>摘要：'+('测试摘要。'*60)+'</p><a href="/download.pdf">PDF下载</a>'
+                                    control = '<a href="/download.pdf">PDF下载</a>'
+                                    if 'handler=1' in self.path:
+                                        # A bare href cannot download this article: the site's
+                                        # actual click handler and user activation are required.
+                                        control = '<a style="display:none" href="/wrong.pdf">PDF下载</a><a id="pdfDown" href="javascript:void(0)" onclick="if(event.isTrusted) location.href=\'/download.pdf\'">PDF 下载</a>'
+                                    content = '<title>测试论文 - 中国知网</title><div class="author">张三</div><p>摘要：'+('测试摘要。'*60)+'</p>'+control
                                 else:
-                                    content = '<title>检索</title><input id="txt_search"><a class="ch" data-val="Chinese">中文</a><p>共找到 1 条</p><table><tbody><tr><td><a href="/kcms2/article/abstract?filename=fixture">测试论文</a></td><td>张三</td></tr></tbody></table>'
+                                    content = '<title>检索</title><input id="txt_search"><a class="ch" data-val="Chinese">中文</a><p>共找到 1 条</p><table><tbody><tr><td><a href="/kcms2/article/abstract?filename=fixture&handler=1">测试论文</a></td><td>张三</td></tr></tbody></table>'
                                 content = content.encode('utf-8')
                                 self.send_response(200)
                                 self.send_header('Content-Type','text/html; charset=utf-8')
@@ -269,20 +280,23 @@ class ChromeTransportTests(unittest.TestCase):
                     base = 'http://127.0.0.1:'+str(server.server_port)
                     downloads = Path(folder)/'downloads'; downloads.mkdir()
                     try:
-                        # In the isolated test context, explicitly save download events
-                        # into its fixture folder. Real extension download settings need
-                        # their own Windows acceptance, not this simulated setup.
-                        transport.code('async page => { page.on("download", d => d.saveAs('+json.dumps(str(downloads))+'+"/"+d.suggestedFilename())); return true; }')
                         with patch.dict(os.environ,{'CNKI_DOWNLOADS_DIR':str(downloads)}), patch.object(cnki,'BASE',base+'/search?korder='):
-                            downloaded = cnki.download('测试论文','张三',Path(folder)/'中文 archive')
+                            args=['download','cnki','测试论文','张三',str(Path(folder)/'中文 archive')]
+                            downloaded = task(args)
                             self.assertTrue(dw.valid_file(downloaded['path']))
-                            self.assertEqual(cnki.download('测试论文','张三',Path(folder)/'中文 archive')['path'],downloaded['path'])
+                            self.assertTrue(br.read_json(downloaded['checkpoint'])['download_event']['saved'])
+                            self.assertEqual(task(args)['path'],downloaded['path'])
+                        self.assertEqual(sum(path.startswith('/download') for path,ref in requests),1)
+                        self.assertFalse(any(path == '/wrong.pdf' for path,ref in requests))
                         self.assertTrue(any(path.startswith('/download') and '/kcms2/article/abstract' in ref for path,ref in requests))
+                        # Publisher compatibility still uses the fixture's configured
+                        # normal download folder; CNKI above needed no external listener.
+                        transport.code('async page => { page.on("download", d => d.saveAs('+json.dumps(str(downloads))+'+"/"+d.suggestedFilename())); return true; }')
                         with patch.object(publisher,'resolve_doi',return_value=base+'/kcms2/article/abstract'):
-                            result = publisher.download('10.1234/fixture',Path(folder)/'publisher')
+                            result = task(['download','doi','10.1234/fixture',str(Path(folder)/'publisher')])
                         self.assertTrue(dw.valid_file(result['path']))
                         with patch.dict(os.environ,{'CNKI_DOWNLOADS_DIR':str(downloads)}), patch.object(publisher,'resolve_doi',return_value=base+'/protected-article'):
-                            result = publisher.download('10.1234/protected',Path(folder)/'browser-publisher')
+                            result = task(['download','doi','10.1234/protected',str(Path(folder)/'browser-publisher')])
                         self.assertTrue(dw.valid_file(result['path']))
                         self.assertTrue(any(path == '/protected.pdf' and '/protected-article' in ref for path, ref in requests))
                     finally:

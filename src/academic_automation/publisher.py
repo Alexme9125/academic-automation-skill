@@ -9,7 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
-from . import browser_runtime as br, download_watch as dw
+from . import browser_runtime as br, download_watch as dw, interaction
 from .cnki import pending_path, resume_download, finish_download
 from .errors import BrowserError
 from .paths import downloads_dir
@@ -93,6 +93,11 @@ def host_is(host, suffix):
 
 
 def download(doi, dest, name='', retry=False):
+    interaction.require_task()
+    return _download(doi, dest, name, retry)
+
+
+def _download(doi, dest, name='', retry=False):
     doi = normalize_doi(doi)
     if not re.fullmatch(r'10\.\d{4,9}/\S+', doi):
         raise BrowserError('A complete DOI is required', 64)

@@ -8,7 +8,7 @@ import sys
 import time
 import json
 from pathlib import Path
-from .browser_runtime import atomic_json, read_json, run_file, BrowserError
+from .browser_runtime import atomic_json, read_json, read_file as run_file, BrowserError
 
 
 def safe_name(name):
@@ -74,7 +74,7 @@ def wait_download(folder, before=None, author='', since=0, timeout=40, page=Fals
         now = time.monotonic()
         if page and now >= next_page:
             if page == 'publisher':
-                from .browser_runtime import run_js, DIR
+                from .browser_runtime import read_js as run_js, DIR
                 js = (DIR / 'browser_ready.js').read_text(encoding='utf-8').replace('__OPTIONS__', '{"mode":"publisher"}')
                 probe = json.loads(run_js(js))
                 state = 'captcha' if probe.get('captcha') or probe.get('login') else 'fee' if probe.get('fee') else ''

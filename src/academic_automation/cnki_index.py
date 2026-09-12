@@ -5,7 +5,7 @@ import json
 import re
 import sys
 import time
-from .browser_runtime import atomic_json, read_json, run_file, run_js, navigate, wait_ready, BrowserError
+from .browser_runtime import atomic_json, read_json, run_file, read_js as run_js, navigate, wait_ready, BrowserError
 
 
 def norm(s):

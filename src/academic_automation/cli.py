@@ -50,9 +50,10 @@ def parser():
     d = sub.add_parser('doctor'); d.add_argument('--browser', action='store_true', help='Also test the connected tab')
     b = sub.add_parser('browser'); b.add_argument('action', choices=['connect', 'disconnect', 'status', 'resolve'])
     b.add_argument('--pending-id'); b.add_argument('--decision', choices=['retry', 'skip']); b.add_argument('--note')
-    s = sub.add_parser('search'); s.add_argument('source', choices=['cnki-foreign', 'scholar', 'wos'])
+    s = sub.add_parser('search'); s.add_argument('source', choices=['cnki', 'cnki-foreign', 'scholar', 'wos'])
     s.add_argument('query'); s.add_argument('output'); s.add_argument('--pages', type=int, default=1)
     s.add_argument('--year', default=''); s.add_argument('--oa', action='store_true'); s.add_argument('--refresh', action='store_true')
+    s.add_argument('--expert', action='store_true', help='CNKI Chinese: query is an exact expert expression')
     m = sub.add_parser('metadata'); m.add_argument('input'); m.add_argument('output')
     m.add_argument('--refresh', action='store_true'); m.add_argument('--meta-script', default=str(br.DIR / 'cnki_meta.js'))
     d = sub.add_parser('download'); modes = d.add_subparsers(dest='source', required=True, parser_class=Parser)
@@ -120,6 +121,10 @@ def dispatch(a):
             raise BrowserError('--oa is supported only for WoS', 64)
         if a.year and a.source != 'scholar':
             raise BrowserError('--year is supported only for Scholar', 64)
+        if a.expert and a.source != 'cnki':
+            raise BrowserError('--expert is supported only for Chinese CNKI search', 64)
+        if a.source == 'cnki':
+            return cnki.chinese_search(a.query, a.output, a.pages, a.refresh, a.expert)
         if a.source == 'cnki-foreign':
             return cnki.foreign_search(a.query, a.output, a.pages, a.refresh)
         from . import search_resume as sr
@@ -188,6 +193,8 @@ def main(argv=None):
         code = exc.code; result = {'message': str(exc), **exc.details}
         if code == 2 and interaction.read():
             result.update(interaction.details())
+        elif code == 70 and interaction.read():
+            result.update(pending=interaction.read(), may_continue_browser=False)
     except (OSError, ValueError) as exc:
         code = 74; result = {'message': str(exc)}
     except KeyboardInterrupt:

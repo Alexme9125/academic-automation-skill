@@ -174,6 +174,10 @@ def main():
             before = snapshot(downloads)
             r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8')
             print(r.stdout, end='', flush=True)
+            if r.returncode in (70, 75):
+                set_row(rows, i, '⏸', title, '浏览器临时错误或正在占用；保留当前篇，检查后重跑')
+                write_state(sp, items, rows)
+                sys.exit(r.returncode)
             archived = ''
             if r.returncode == 0:
                 archived = next((line[len('ARCHIVED: '):] for line in r.stdout.splitlines()

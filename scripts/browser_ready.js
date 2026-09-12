@@ -15,6 +15,7 @@
     || Array.from(document.querySelectorAll('#challenge-running, #challenge-stage, #awswaf-captcha-container')).some(visible)
     || cnkiCaptcha;
   var login = /access\.clarivate\.com\/login/.test(url)
+    || /^https?:\/\/(?:login|passport)\.cnki\.net(?:\/|$)/i.test(url)
     || /institutional login required/i.test(body.slice(0, 2500))
     || (Array.from(document.querySelectorAll('input[type="password"]')).some(visible)
       && /登录|统一认证|sign[ -]?in|log[ -]?in|authentication/i.test(title + body.slice(0, 2500)));

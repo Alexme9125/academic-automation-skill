@@ -7,10 +7,28 @@ import hashlib
 import json
 import time
 import uuid
+from contextvars import ContextVar
+from contextlib import contextmanager
 from pathlib import Path
 
 from .errors import BrowserError
 from .paths import state_dir
+
+_task = ContextVar('academic_task', default=None)
+
+
+def require_task():
+    if _task.get() is None:
+        raise BrowserError('USE_UNIFIED_CLI: run scripts/academic.py; direct workflow calls omit locking and human handoffs', 64)
+
+
+@contextmanager
+def _scope(key):
+    token = _task.set(key)
+    try:
+        yield
+    finally:
+        _task.reset(token)
 
 
 def path():
@@ -104,12 +122,13 @@ def run(key, argv, callback, recover=None):
         if not pending.get('user_confirmed'):
             blocked(pending)
     try:
-        result = callback(bool(pending and pending.get('user_confirmed')))
+        with _scope(key):
+            result = callback(bool(pending and pending.get('user_confirmed')))
     except BrowserError as exc:
         if exc.code != 2:
             # A definitive result after an acknowledged retry ends this handoff.
             # Transient/protocol failures keep the pending task protected.
-            if pending and exc.code in (1, 3, 5):
+            if pending and exc.code in (1, 3, 5) and not exc.details.get('retryable'):
                 clear()
             raise
         state = {'id': pending['id'] if pending else uuid.uuid4().hex,

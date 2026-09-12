@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urldefrag
 
 from .errors import BrowserError
-from .paths import ROOT, state_dir
+from .paths import ROOT, SCRIPTS, state_dir
 
 
 def backend_name():
@@ -128,24 +128,46 @@ def cli_result(output):
 class ExtensionBrowser:
     def connect(self):
         # The extension presents the browser/tab selection UI. No cookie export.
-        cli_call('attach', '--extension=chrome', timeout=120)
-        save_session({'connected': True})
-        return {'backend': 'extension', 'session': session_name(), 'connected': True}
+        session_path().unlink(missing_ok=True)
+        try:
+            cli_call('attach', '--extension=chrome', timeout=120)
+            page = self._code('async page => ({url:page.url(), title:await page.title()})')
+            if not isinstance(page, dict) or not page.get('url'):
+                raise BrowserError('Selected tab could not be read', 70)
+        except BrowserError as exc:
+            if exc.code == 69:
+                raise
+            raise BrowserError('NEED_CONNECTION: attach was not verified; select a Chrome tab and run browser connect again', 2,
+                               {'phase': 'connect_probe', 'cause': str(exc)}) from exc
+        save_session({'connected': True, 'verified_at': time.time(), 'page': page})
+        return {'backend': 'extension', 'session': session_name(), 'connected': True, 'page': page}
 
     def disconnect(self):
         cli_call('detach')
         session_path().unlink(missing_ok=True)
         return {'connected': False}
 
-    def code(self, source):
+    def code(self, source, timeout=45):
         if not read_session().get('connected'):
             raise BrowserError('NEED_CONNECTION: run browser connect and select a Chrome tab', 2)
+        try:
+            return self._code(source, timeout)
+        except BrowserError as exc:
+            if re.search(r"browser.*(?:is not open|not connected)|session.*not found", str(exc), re.I):
+                session_path().unlink(missing_ok=True)
+                raise BrowserError('NEED_CONNECTION: the Playwright session is no longer available; reconnect the existing Chrome', 2,
+                                   {'cause': str(exc)}) from exc
+            raise
+
+    def _code(self, source, timeout=45):
         # A file avoids Windows command length/quoting limits and keeps extracted data
         # out of the shell. The source is trusted repository JavaScript.
         with tempfile.TemporaryDirectory(prefix='academic-js-') as tmp:
             path = Path(tmp) / 'operation.js'
             path.write_text(source, encoding='utf-8')
-            return cli_result(cli_call('run-code', '--filename=' + str(path)))
+            # Keep the established default call shape for the compatibility layer.
+            args = ('run-code', '--filename=' + str(path))
+            return cli_result(cli_call(*args, **({'timeout': timeout} if timeout != 45 else {})))
 
     def evaluate(self, js):
         value = self.code('async page => { return await page.evaluate(' + json.dumps(js) + '); }')
@@ -154,8 +176,29 @@ class ExtensionBrowser:
         return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
 
     def navigate(self, url):
-        self.code('async page => { await page.goto(' + json.dumps(url) +
-                  ', {waitUntil:"domcontentloaded", timeout:30000}); return page.url(); }')
+        # Readiness is checked by the caller. Waiting for commit avoids unrelated
+        # slow deferred scripts blocking an already usable CNKI document.
+        marker = uuid.uuid4().hex
+        return self.code('''async page => {
+          const token = TOKEN, target = TARGET;
+          await page.evaluate(t => { window.__academicNavigationToken = t; }, token);
+          try {
+            await page.goto(target, {waitUntil:"commit", timeout:30000});
+            return {url:page.url(), committed:true};
+          } catch (e) {
+            if (e.name !== 'TimeoutError') throw e;
+            const fresh = await page.evaluate(t => window.__academicNavigationToken !== t
+              && document.readyState !== 'loading', token).catch(() => false);
+            if (!fresh) throw e;
+            return {url:page.url(), committed:true, recovered_timeout:true};
+          }
+        }'''.replace('TOKEN', json.dumps(marker)).replace('TARGET', json.dumps(url)))
+
+    def cnki_download(self, selector, capture_path, event_timeout=12000):
+        source = (SCRIPTS / 'cnki_download_action.js').read_text(encoding='utf-8')
+        values = {'__SELECTOR__': selector, '__CAPTURE__': str(capture_path), '__EVENT_TIMEOUT__': event_timeout}
+        source = re.sub(r'__SELECTOR__|__CAPTURE__|__EVENT_TIMEOUT__', lambda m: json.dumps(values[m[0]]), source)
+        return self.code(source, timeout=90)
 
 
 class AppleEventsBrowser:

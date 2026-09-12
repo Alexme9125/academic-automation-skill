@@ -17,6 +17,26 @@ def run_js(js):
     return get_browser().evaluate(js)
 
 
+def read_js(js, attempts=3):
+    """Retry only explicitly read-only probes across a document replacement."""
+    for attempt in range(attempts):
+        try:
+            return run_js(js)
+        except BrowserError as exc:
+            if not is_context_change(exc) or attempt + 1 == attempts:
+                raise
+            time.sleep(.25)
+
+
+def is_context_change(exc):
+    return exc.code == 70 and any(part in str(exc).lower() for part in
+        ('execution context was destroyed', 'cannot find context', 'context with specified id'))
+
+
+def read_file(name):
+    return read_js((DIR / name).read_text(encoding='utf-8'))
+
+
 def run_file(name):
     return run_js((DIR / name).read_text(encoding='utf-8'))
 
@@ -54,7 +74,7 @@ def wait_ready(mode, timeout=20, url='', previous='', minimum=1.0):
     start = time.monotonic()
     last, stable_since, state = None, start, {}
     while time.monotonic() - start < timeout:
-        state = json.loads(run_js(js))
+        state = json.loads(read_js(js))
         if state.get('captcha') or state.get('login'):
             raise BrowserError('LOGIN_OR_CAPTCHA: complete verification in Chrome', 2, {'url': state.get('url', '')})
         if state.get('not_found'):
@@ -71,7 +91,8 @@ def wait_ready(mode, timeout=20, url='', previous='', minimum=1.0):
             print(f'READY {mode}: {now-start:.1f}s', file=sys.stderr)
             return state
         time.sleep(0.5)
-    raise BrowserError(f'WAIT_TIMEOUT {mode}: {state.get("url", "")}')
+    raise BrowserError(f'WAIT_TIMEOUT {mode}: {state.get("url", "")}', 70,
+                       {'retryable': True, 'phase': mode, 'page': state})
 
 
 def main():

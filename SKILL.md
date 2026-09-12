@@ -13,7 +13,7 @@ metadata:
 
 | 用户任务 | 此时读取 | 执行入口 |
 |---|---|---|
-| 知网中文期刊、博硕、会议；中文题名清单 | [中文库](references/chinese-macos.md) | `download cnki`；批量 `batch` |
+| 知网中文期刊、博硕、会议；中文题名清单 | [中文库](references/chinese-macos.md) | `search cnki` → `download cnki`；批量 `batch` |
 | 知网外文、WWJD；摘要页给 DOI 无 PDF/CAJ | [外文库](references/foreign-macos.md) | `search cnki-foreign` → `metadata` → `bibliography cnki` |
 | Web of Science / WoS / Core Collection | [WoS](references/wos-macos.md) | `search wos` → `bibliography wos` |
 | 谷歌学术 / Google Scholar | [Scholar](references/scholar-macos.md) | `search scholar` → `bibliography scholar` |
@@ -41,10 +41,10 @@ metadata:
 ## 共用前提与约束
 
 1. 新用户先读[平台安装](references/install-windows.md)（Windows）或[macOS 安装](references/install-macos.md)。正常任务只读[统一命令行](references/cli.md)中对应命令。默认沿用已登录 Chrome，不导出 cookie；Windows 扩展后端为预览，实机验收状态见 `VERIFICATION.md`。
-2. 使用 `scripts/academic.py` 统一入口；机器调用将 `--json` 放在子命令之前。Windows 使用 `py -3`，macOS 使用 `python3`。浏览器连接后绑定选定标签，同一用户的浏览器任务串行执行。出现 `needs_user` 时停止调度，待用户处理后重跑；原始 shell 入口仅用于兼容 macOS。
+2. 使用 `scripts/academic.py` 统一入口；机器调用将 `--json` 放在子命令之前。自定义编排也应调用该入口，不直接导入 `cnki.download` 等内部函数，它们不能作为独立 API 使用。Windows 使用 `py -3`，macOS 使用 `python3`。浏览器连接后绑定选定标签，同一用户的浏览器任务串行执行。出现 `needs_user` 时停止调度，待用户处理后重跑；原始 shell 入口仅用于兼容 macOS。
 3. CNKI 登录/机构权限在中文或外文模式检查；WoS 机构访问在 basic-search 检查。不要要求 Scholar 或纯离线整理任务先登录知网。机构访问与 WoS 顶栏个人 Sign In 不同。
 4. 外文库/WoS 没有知网式 PDF/CAJ 按钮，禁止对这些详情页运行 `cnki_click.js`。外文全文走完整 DOI → 出版社，或真实可用的 PDF 链接。
-5. 中文下载保留详情页 referrer，通过 `location.href` 跳转。不要直接 open/curl 知网下载地址。语言库状态会跨检索保留，中文检索前点回中文。
+5. 中文下载保留详情页 referrer。macOS 默认方式保持页内跳转；扩展方式点击已核对的可见按钮，保留网站点击事件，并监听下载。不要直接 open/curl 知网下载地址，或在没有落盘时自行追加点击。语言库状态会跨检索保留，中文检索前点回中文。
 6. 验证码、人机验证、登录墙按上面的人工交接处理，不自动绕过。只能根据该篇在验证完成后的实际页面确认权限；期刊为订阅制、缺少机构标识、HTTP 请求失败都不能单独证明无权限。网络错误、链接缺失与非 OA 不混为“机构订阅”。
 7. 开始下载/整理前查看工作区已有分类与相关目录，复用用户归档结构，避免覆盖与重复下载。目标未指定时补齐路径。跨设备移动使用支持复制再删除的归档流程。
 8. 页面等待按目标页面和内容稳定性判断，并保留超时；访问节奏与页面就绪独立。不要为提速取消作者匹配、文件稳定性验证、PDF 类型检查或验证码暂停。

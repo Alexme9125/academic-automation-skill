@@ -3,6 +3,10 @@
   var href = location.href || '';
   var title = document.title || '';
   var t = document.body ? document.body.innerText.slice(0, 4000) : '';
+  var login = /^https?:\/\/(?:login|passport)\.cnki\.net(?:\/|$)/i.test(href)
+    || (Array.from(document.querySelectorAll('input[type="password"]')).some(function(e){
+      return e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden';
+    }) && /登录|统一认证|sign[ -]?in|log[ -]?in/i.test(title + t));
   var captchaEl = Array.prototype.filter.call(document.querySelectorAll('*'), function (e) {
     if (!e.textContent) return false;
     var s = e.textContent.trim();
@@ -11,7 +15,7 @@
     return r.width > 0 && r.top >= 0 && r.top < 2000;
   });
   if (
-    captchaEl.length ||
+    login || captchaEl.length ||
     /拼图校验/.test(title) ||
     /bar\.cnki\.net\/bar\/verify/i.test(href) ||
     t.indexOf('请依次点击') > -1

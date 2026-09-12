@@ -2,13 +2,15 @@
 import json
 import re
 import time
+import uuid
 from pathlib import Path
 from urllib.parse import quote
 
 from . import browser_runtime as br, cnki_index as index, download_watch as dw
-from . import search_resume as sr
+from . import search_resume as sr, interaction
 from .paths import downloads_dir
 from .errors import BrowserError
+from .browser import backend_name
 
 BASE = 'https://kns.cnki.net/kns8s/defaultresult/index?crossids=YSTT4HG0%2CLSTPFY1C%2CEMRPGLPA%2CJUP3MUPD%2CMPMFIG1A%2CWQ0UVIAA%2CBLZOG7CK%2CPWFIRAGL%2CNLBO1Z6R%2CNN3FJMUV&korder='
 EXPERT_URL = 'https://kns.cnki.net/kns8s/AdvSearch?type=expert'
@@ -41,9 +43,9 @@ def start_chinese(title, expert):
 
 
 def page_status():
-    state = br.run_file('cnki_page.js')
+    state = br.read_file('cnki_page.js')
     if state.startswith('captcha'):
-        raise BrowserError('CAPTCHA: complete verification in the connected tab', 2)
+        raise BrowserError('LOGIN_OR_CAPTCHA: complete verification in the connected tab', 2)
     if state.startswith('fee'):
         raise BrowserError('FEE: no download access for this article', 5)
     return state
@@ -75,13 +77,19 @@ def locate(title, author, expert='', affiliation='', pages=3, index_path=''):
     values = {'__JSON__': json.dumps(title, ensure_ascii=False), '__AUTHOR__': json.dumps(author, ensure_ascii=False)}
     matcher = re.sub(r'__JSON__|__AUTHOR__', lambda match: values[match.group()], matcher)
     for number in range(max(1, pages)):
-        result = br.run_js(matcher)
+        # Select in a read-only evaluation, then navigate outside that context.
+        # The legacy snippet keeps its original navigation behavior for old callers.
+        result = br.read_js('(function(){var __academicSelectOnly=true;return ' + matcher + '\n})()')
         if result.startswith('captcha'):
             raise BrowserError('CAPTCHA', 2)
         if '@@MATCH@@' in result:
+            selected = json.loads(result.split('@@MATCH@@', 1)[1])
+            br.navigate(selected['href'])
             br.wait_ready('cnki-meta', 25)
             if not page_status().startswith('detail'):
                 raise BrowserError('NODETAIL: matched result did not reach the detail page')
+            if not index.verify_detail(selected['title'], author):
+                raise BrowserError('DETAIL_IDENTITY_MISMATCH: verify the selected title and author', 1)
             return
         if number + 1 < pages:
             previous = br.wait_ready('cnki-results', 15)['signature']
@@ -105,7 +113,7 @@ def finish_download(path, dest, checkpoint, state, name=''):
     def journal(target):
         state['archive_target'] = str(target)
         br.atomic_json(checkpoint, state)
-    saved = dw.archive(path, dest, name, journal=journal)
+    saved = dw.archive(path, dest, name or state.get('name', ''), journal=journal)
     state.update(status='complete', file=file_record(saved))
     br.atomic_json(checkpoint, state)
     return {'path': str(saved), 'checkpoint': str(checkpoint), 'status': 'complete'}
@@ -137,10 +145,70 @@ def resume_download(checkpoint, dest, author='', retry=False, name=''):
         if not retry:
             raise BrowserError('NEEDS_USER: save the PDF/CAJ, then repeat this command; use --retry only to issue a new request', 2,
                                {'checkpoint': str(checkpoint), 'downloads': state.get('downloads', '')})
+        if state.get('transfer_file') and Path(state['transfer_file']).exists():
+            raise BrowserError('NEEDS_USER: an unconfirmed browser transfer exists; inspect it or save the paper manually before retrying', 2,
+                               {'checkpoint': str(checkpoint), 'transfer_file': state['transfer_file']})
+    return None
+
+
+def extension_download(checkpoint, state, author):
+    """Save the event-owned file independently of Chrome's default download folder."""
+    probe = (br.DIR / 'cnki_download_probe.js').read_text(encoding='utf-8')
+    selected = None
+    for attempt in range(3):
+        page_status()
+        selected = json.loads(br.read_js(probe.replace('__TOKEN__', json.dumps(uuid.uuid4().hex))))
+        if selected['status'] != 'no_link':
+            break
+        if attempt < 2: time.sleep(2)
+    state['download_control'] = selected
+    br.atomic_json(checkpoint, state)
+    if selected['status'] == 'no_link':
+        state['status'] = 'no_link'; br.atomic_json(checkpoint, state)
+        raise BrowserError('NOLINK: no visible PDF/CAJ control found', 3, {'checkpoint': str(checkpoint)})
+    if selected['status'] != 'selected':
+        raise BrowserError('NEEDS_USER: more than one visible download control; inspect this article', 2,
+                           {'checkpoint': str(checkpoint)})
+    folder = Path(checkpoint).parent / (Path(checkpoint).stem + '.transfers') / uuid.uuid4().hex
+    folder.mkdir(parents=True)
+    transfer = folder / 'received.part'
+    state['transfer_file'] = str(transfer)
+    br.atomic_json(checkpoint, state)
+    try:
+        event = br.get_browser().cnki_download(selected['selector'], transfer)
+        state['download_event'] = event
+    except BrowserError as exc:
+        state['download_event'] = {'status': 'transport_error', 'error': str(exc)}
+        br.atomic_json(checkpoint, state)
+        # The click may already have taken effect; recover files without re-clicking.
+        if exc.code not in (2, 70): raise
+        event = state['download_event']
+    br.atomic_json(checkpoint, state)
+    if event.get('saved'):
+        name = dw.safe_name(event.get('suggested_filename', ''))
+        if not re.search('_' + re.escape(author) + r'(?:\s*\(\d+\))?\.(?:pdf|caj)$', name, re.I):
+            raise BrowserError('NEEDS_USER: captured filename does not match the expected author; verify the file', 2,
+                               {'checkpoint': str(checkpoint), 'suggested_filename': name, 'transfer_file': str(transfer)})
+        # Keep the transfer path short on Windows; the original filename is applied
+        # only in the final archive and retained in the checkpoint for recovery.
+        saved = folder / ('received' + Path(name).suffix.lower())
+        # Record the intended path before rename, so an interrupted archive can resume.
+        state['candidate'] = str(saved)
+        state['name'] = name
+        br.atomic_json(checkpoint, state)
+        transfer.replace(saved)
+        if not dw.valid_file(saved):
+            raise BrowserError('NEEDS_USER: captured file is not a valid PDF/CAJ', 2, {'checkpoint': str(checkpoint)})
+        return saved
     return None
 
 
 def download(title, author, dest, expert='', affiliation='', pages=3, index_path='', retry=False):
+    interaction.require_task()
+    return _download(title, author, dest, expert, affiliation, pages, index_path, retry)
+
+
+def _download(title, author, dest, expert='', affiliation='', pages=3, index_path='', retry=False):
     from .cnki_batch import identity, existing_exact
     if not title.strip() or not author.strip():
         raise BrowserError('NEED_AUTHOR: Chinese downloads require title and first author before opening the browser', 64)
@@ -160,6 +228,21 @@ def download(title, author, dest, expert='', affiliation='', pages=3, index_path
     state = {'status': 'waiting', 'title': title, 'author': author,
              'downloads': str(folder.resolve()), 'before': dw.snapshot(folder), 'since': time.time()}
     br.atomic_json(checkpoint, state)
+    if backend_name() == 'extension':
+        candidate = extension_download(checkpoint, state, author)
+        if candidate:
+            return finish_download(candidate, dest, checkpoint, state)
+        # No event may mean Chrome handled the download itself. Check the original
+        # snapshot first; a missing event never authorizes a second click.
+        try:
+            candidate = dw.wait_download(folder, state['before'], author, state['since'],
+                                         timeout=max(1, 40 - (time.time() - state['since'])), page=True)
+        except BrowserError as exc:
+            if exc.code not in (2, 4, 70): raise
+            raise BrowserError('NEEDS_USER: inspect the current page or save the PDF; do not repeat the click automatically', 2,
+                               {'checkpoint': str(checkpoint), 'downloads': str(folder),
+                                'diagnostics': state.get('download_event'), 'cause': str(exc)}) from exc
+        return finish_download(candidate, dest, checkpoint, state)
     for attempt in range(3):
         result = br.run_file('cnki_click.js')  # location.href preserves CNKI referrer.
         if result.startswith('captcha'):
@@ -176,14 +259,63 @@ def download(title, author, dest, expert='', affiliation='', pages=3, index_path
     try:
         candidate = dw.wait_download(folder, state['before'], author, state['since'], timeout=40, page=True)
     except BrowserError as exc:
-        if exc.code in (2, 4):
+        if exc.code in (2, 4, 70):
             raise BrowserError('NEEDS_USER: inspect verification or save the current download in Chrome', 2,
                 {'checkpoint': str(checkpoint), 'downloads': str(folder), 'cause': str(exc)}) from exc
         raise
     return finish_download(candidate, dest, checkpoint, state)
 
 
+def chinese_search(query, output, pages=1, refresh=False, expert=False):
+    interaction.require_task()
+    if pages < 1 or not query.strip():
+        raise BrowserError('Chinese search requires a query and --pages >= 1', 64)
+    expression = query.strip() if expert else "SU='%s'" % clean(query)
+    config = {'mode': 'cnki-chinese', 'query': query, 'expert': expert}
+    cp = str(output) + '.progress.json'
+    state = sr.checkpoint(cp, config, refresh)
+
+    def publish(complete=False):
+        selected = {k: v for k, v in state['pages'].items() if int(k) <= pages}
+        rows = sr.merge_pages(selected)
+        result = {'database': 'cnki-chinese', 'query': query, 'expert_query': expression,
+                  'total': state.get('total'), 'n': len(rows), 'rows': rows, 'complete': complete}
+        br.atomic_json(output, result)
+        return result
+
+    if len(state['pages']) >= pages or state.get('exhausted'):
+        return publish(True)
+    publish()
+    start_chinese('', expression)
+    count = json.loads(br.read_file('cnki_count.js')).get('n')
+    if count is None:
+        raise BrowserError('INCOMPLETE_CNKI_COUNT: result count is unavailable', 70, {'retryable': True})
+    state['total'] = count
+    if count == 0:
+        state['exhausted'] = True; br.atomic_json(cp, state)
+        return publish(True)
+    for number in range(1, pages + 1):
+        ready = br.wait_ready('cnki-results', 25, minimum=2)
+        data = json.loads(br.read_file('cnki_rows.js'))
+        if not data.get('rows'):
+            raise BrowserError('INCOMPLETE_CNKI_PAGE', 70, {'retryable': True, 'page': number})
+        state['pages'][str(number)] = data
+        br.atomic_json(cp, state)
+        result = publish(number == pages)
+        if number == pages: return result
+        if not br.run_file('cnki_next.js').startswith('next'):
+            state['exhausted'] = True; br.atomic_json(cp, state)
+            return publish(True)
+        br.wait_ready('cnki-results', 20, previous=ready['signature'], minimum=2)
+        time.sleep(2)
+
+
 def foreign_search(query, output, pages=1, refresh=False):
+    interaction.require_task()
+    return _foreign_search(query, output, pages, refresh)
+
+
+def _foreign_search(query, output, pages=1, refresh=False):
     if pages < 1:
         raise BrowserError('Invalid --pages', 64)
     config = {'mode': 'cnki-foreign', 'query': query}
