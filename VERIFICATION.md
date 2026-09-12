@@ -1,4 +1,4 @@
-# 未发布修复：外部模型 / Harness 反馈（2026-09-12）
+# 2.0.0-beta.2 验证：外部模型 / Harness 反馈（2026-09-12）
 
 依据用户提供的《脑机接口文献下载测试记录》定位问题。记录涉及 macOS、ZCode 与 GLM-5.3，但未记录 Skill 的版本或代码指纹，原始下载及运行文件已清理。因此，这里区分报告中的现象、当前源码可确认的问题和本轮实际验证，不将测试记录中的经验建议当作操作指令。
 
@@ -25,12 +25,13 @@
 - 离线套件共 52 项：51 项通过，1 项隔离 Chrome 测试默认跳过，原有回归全部通过。
 - 单独启用隔离 Chrome 测试通过（25.7 秒）。包含模拟站点的中文匹配下载，以及独立 HTTP 请求不能获取 PDF 后，从真实 Chrome 的同源链接下载并保留 Referer。
 - 38 个 Python 文件、31 个 JavaScript 文件和 9 个 shell 文件通过语法检查。系统 Skill 验证器因缺少 PyYAML 无法执行；另用 Ruby YAML 验证 Skill 元数据。
+- Beta 2 两个平台 ZIP 已在 macOS 的中文和空格路径下解压，版本、默认后端、帮助入口、题录生成及安装说明链接检查通过，SHA-256 校验一致。macOS 使用包内 `academic.command`；Windows 包在 macOS 上验证 Python 入口，不能代替 Windows 原生 `academic.cmd` 验收。
 
 本轮没有重新运行 ZCode/GLM-5.3，也没有把模拟站点结果当成 Wiley、Elsevier 或真实 AWS WAF 的重新验收。实际模型是否遵守等待规则仍需按 [Harness 复测清单](references/acceptance.md#模型与-harness-的人工交接复测)验证。
 
 程序无法鉴别模型是否虚构了用户回复，也不能禁止拥有本地命令权限的 Agent 绕过本项目入口。Harness 应将 `wait_for_user=true` 设为暂停调度信号，并仅在收到实际用户消息后开放 `browser resolve`。这一层与 Skill 和 CLI 的约束共同使用。
 
-以下为已发布 beta.1 的历史验证记录；本节修复尚未更新到其 Release 附件。
+本节修复随 beta.2 的 Windows 与 macOS 安装包分发。以下为 beta.1 的历史验证记录，不表示本轮重新完成了所有真实网站验收。
 
 ---
 

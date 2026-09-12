@@ -1,6 +1,6 @@
 # Academic Automation Skill
 
-> **2.0.0-beta.1 cross-platform preview:** shared Python core, Windows Chrome extension backend, and the existing macOS Apple Events backend. Windows website/extension and agent acceptance is pending. Download the Windows or macOS ZIP from the same Release; neither ZIP bundles runtimes. Start with [Windows installation](references/install-windows.md), [macOS installation](references/install-macos.md), and the [shared CLI](references/cli.md).
+> **2.0.0-beta.2 cross-platform preview:** adds persistent pauses for human verification and fixes article PDF selection. Shared Python core, Windows Chrome extension backend, and the existing macOS Apple Events backend. Windows website/extension and agent acceptance is pending. Download the Windows or macOS ZIP from the same Release; neither ZIP bundles runtimes. Start with [Windows installation](references/install-windows.md), [macOS installation](references/install-macos.md), and the [shared CLI](references/cli.md).
 
 
 **English** | [简体中文](README.zh-CN.md)
