@@ -1,6 +1,6 @@
 # Windows 安装（预览版）
 
-适用于 Windows 10/11 上能执行本地命令的 Coding Agents。真实 Windows 扩展、网站及各 Agent 验收尚待测试者完成；不要把安装成功等同于功能验收通过。
+面向 Windows 10/11 上能执行本地命令的 Coding Agents。已有 Windows 测试者回报部分流程跑通及下载问题，本版据此修复，真实扩展与网站仍待复测，各 Agent 需分别验收；不要把安装成功等同于功能验收通过。
 
 1. 下载 Release 中的 `academic-automation-v<版本号>-windows.zip`，解压得到 `cnki-download`。将完整目录放进所用 Agent 的 Skill 目录，或让 Agent 读取其 `SKILL.md`。
 2. 安装 Python（代码最低 3.9，新安装建议 3.11+）、Node.js 22+ 和 Google Chrome。Chrome 使用自己的日常账户及机构权限。

@@ -1,6 +1,6 @@
 # Academic Automation Skill
 
-> **2.0.0-beta.2 跨平台预览版：**新增跨命令的人工验证暂停约束，修复正文 PDF 选择。共享 Python 核心，Windows 使用 Chrome 官方扩展，macOS 保留 Apple Events。Windows 实机及各 Agent 验收待测试者完成。同一个 Release 提供 Windows/macOS 两个 ZIP，均不捆绑运行环境。请先阅读 [Windows 安装](references/install-windows.md)、[macOS 安装](references/install-macos.md)和[统一命令行](references/cli.md)。
+> **2.0.0-beta.3 跨平台预览版：**根据 Windows 测试反馈，扩展下载改为真实按钮点击并捕获下载事件，连接成功前核验标签，超时后保留待人工任务；新增中文知网统一检索入口。修复仍待 Windows 实机复测，macOS 默认保留 Apple Events。同一个 Release 提供 Windows/macOS 两个 ZIP，均不捆绑运行环境。请先阅读 [Windows 安装](references/install-windows.md)、[macOS 安装](references/install-macos.md)和[统一命令行](references/cli.md)。
 
 
 [English](README.md) | **简体中文**

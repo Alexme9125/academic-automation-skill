@@ -2,7 +2,7 @@
 name: cnki-download
 description: 在知网中文/外文库（CNKI、WWJD）、Web of Science（WoS）或谷歌学术检索文献、整理带链接的题录目录，并按题名清单或 DOI 下载可获取的 PDF/CAJ。适用于文献检索、批量下载及归档；浏览器流程沿用用户已登录的 Chrome；Windows 使用官方扩展，macOS 支持 Apple Events。
 metadata:
-  version: "2.0.0-beta.2"
+  version: "2.0.0-beta.3"
 ---
 
 # 学术文献检索、下载与归档

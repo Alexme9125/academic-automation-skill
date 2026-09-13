@@ -1,52 +1,50 @@
-# v2.0.0-beta.2：人工验证等待与下载修复
+# v2.0.0-beta.3：知网自动下载与 Windows 反馈修复
 
-本轮 macOS 外部模型与 Harness 的测试反馈表明，下载流程遇到验证页面后，模型可能在用户尚未完成操作时便结束下载，将文献转为仅记录题录。本版将这一阶段界定为“待人工”，即仍需用户处理当前页面，尚不能判断全文无法获取；以这一交接环节为例，将用户回复与下载检查点结合，形成可跨命令保留的暂停流程，为 Agent 恢复原任务提供依据。
+Windows 测试者使用 DSH 与 DeepSeek 运行 Beta 2 时，已完成部分检索和下载，但也遇到程序操作后没有文件的情况，需要手工点击才能继续。本版以这一下载过程为例，将页面按钮点击、浏览器下载事件与文件检查点结合，补充下载结果的核验与恢复，为减少人工补点提供依据。
 
-遇到验证码、登录或保存窗口时，Agent 必须向用户提问并等待实际回复，程序则保存暂停状态，阻止通过本项目入口继续打开其他文章；用户完成操作后，先核对文件是否已经落盘，再决定是否恢复网页请求。这样可以减少人工操作与自动下载之间的重复，也使待人工、失败和用户明确跳过分别保留，避免把尚未完成的任务汇报为全部完成。
+本版所说的“下载完成”，即文件已落盘，并经过核验和归档。扩展后端会实际点击唯一可见的 PDF/CAJ 按钮，保留网站的点击事件与详情页来源信息；浏览器返回下载事件后，程序保存对应文件，核对作者和格式，再归档。没有收到事件时则检查 Chrome 的实际下载目录，仍无可核验文件便暂停，避免在结果不明时重复点击。
 
-Beta 2 继续在同一个 Pre-Release 中提供 Windows 与 macOS 两个独立下载包。“预发布”即供测试者安装和验证的版本，其中 macOS 默认 Apple Events 路径已有真实网站实测基础，本轮通过离线回归和隔离 Chrome 测试；Windows 官方扩展仍待测试者实机验收。
+Beta 3 继续作为 Pre-Release 提供 Windows 与 macOS 两个下载包。本轮修复已通过离线回归和隔离 Chrome 测试，Windows 报告中的具体文章仍需测试者复测；模拟条件下自动下载成功，不能据此认定所有知网页面与机构环境均已通过验收。
 
-## 本版修复
+## 本版改动
 
-| 问题 | Beta 2 的处理 |
+| 测试中暴露的问题 | Beta 3 的处理 |
 |---|---|
-| 验证未完成，模型自行决定不下载 | `needs_user` 持久保存，返回 `wait_for_user: true`；更换会话名或加 `--retry` 不能解除暂停。收到实际用户回复后，通过 `browser resolve` 记录决定并恢复原任务 |
-| 将待人工或下载失败写成“无机构订阅” | 删除默认推断。待人工与失败分开；只有用户明确要求跳过，才记录 `skipped_by_user`，不能据此认定无权限 |
-| 用户已经保存文件，续跑仍重复请求 | 优先核验检查点对应的已存文件；需要网页操作时才继续原任务，再遇到验证则重新暂停 |
-| 出版社附录被当作正文 | 优先正文元数据链接和明确的正文 PDF，排除常见附录候选，并保留实际下载来源。仍需核对题名与作者，页数不能独自证明正文身份 |
-| 安全验证页、失效链接处理不足 | 补充 Cloudflare / AWS WAF 可见验证页识别；知网详情失效时返回来源 URL 和已有进度，保留已完成记录 |
-| DOI 及文件名影响恢复 | 清理已识别的 DOI 追踪参数，保留 DOI 自身字符；补充作者后无空格的 `(1)` 重复文件名识别，多候选时仍不猜测 |
-| 难以确认测试者安装的代码 | `doctor` 增加 `code_fingerprint`，便于同时记录版本、模型和 Harness 信息 |
+| 自动下载无文件，需要人工补点 | 扩展方式由读取链接跳转改为实际按钮点击，并监听当前页及新窗口的下载事件；未收到事件时先查文件，无结果则转为待人工，不追加点击 |
+| 连接显示成功，随后提示会话不可用 | 扩展附着后实际读取选定标签的标题和 URL，通过才保存连接状态；发现会话失效时提示重连 |
+| 页面仍在跳转，读取脚本报错 | 将结果匹配与详情导航分开；只读检查在上下文切换时最多重试三次，点击和提交不会随之重放 |
+| 用户确认后，页面超时清除了暂停记录 | 页面就绪超时返回 70，保留已有待人工记录；批量遇到 70 或浏览器占用 75 时停止，留在当前篇 |
+| 自写脚本遗漏任务锁与人工交接 | 公开下载及知网检索函数拒绝在统一入口之外独立调用；新增 `search cnki`，支持主题检索和专业检索，逐页保存进度 |
 
-旧 macOS `oa_dl.sh` 的待人工退出码由 3 统一为 **2**；新增 **6** 表示用户明确跳过。自行编写调度器的用户需要更新退出码判断，完整约定见[统一命令行说明](https://github.com/Alexme9125/academic-automation-skill/blob/v2.0.0-beta.2/references/cli.md)。
+下载检查点还保留按钮信息与下载事件结果，保存失败时记录原因，便于区分“没有找到按钮”“点击后没有事件”与“已经收到事件但保存失败”。未确认完成的临时文件不会直接归档，也不会自动触发另一次下载。
 
-这一机制的作用范围仍是本项目入口：程序能够保存暂停状态，却无法鉴别模型是否编造了用户回复，也不能禁止拥有本地命令权限的 Agent 绕过入口。所以 Harness 应在收到 `wait_for_user: true` 后暂停浏览器调度，仅在实际用户消息到达后允许调用 `browser resolve`，使对话中的等待与程序中的暂停保持一致。本版没有实现验证码绕过，也不承诺无人值守下载。
+Beta 2 的人工交接规则继续保留。遇到登录、验证码或保存窗口，Agent 应向用户提问并等待实际回复；用户完成操作后先核验已有文件，再恢复原任务。待人工、失败和用户明确跳过分别记录，不能将待人工文献改写成无权限或仅题录完成。程序约束的是本项目入口，Harness 仍须保证 `browser resolve` 来自实际用户回复。
 
 ## 下载与升级
 
-在本页 Assets 中选择对应系统的 ZIP。解压后得到完整的 `cnki-download` 文件夹，将其放入 Agent 的 Skill 目录，或让 Agent 读取其中的 `SKILL.md`。安装说明位于包内 `INSTALL.md`。
+从本页 Assets 选择对应系统的 ZIP，解压后得到完整的 `cnki-download` 文件夹，将其放入所用 Agent 的 Skill 目录，或让 Agent 读取其中的 `SKILL.md`。包内 `INSTALL.md` 提供安装步骤。
 
-| 附件 | 用途 |
+| 附件 | 内容 |
 |---|---|
-| `academic-automation-v2.0.0-beta.2-windows.zip` | Windows 10/11 测试包，提供 `academic.cmd` |
-| `academic-automation-v2.0.0-beta.2-macos.zip` | macOS 测试包，提供 `academic.command` 及旧脚本兼容入口 |
+| `academic-automation-v2.0.0-beta.3-windows.zip` | Windows 测试包，提供 `academic.cmd` |
+| `academic-automation-v2.0.0-beta.3-macos.zip` | macOS 测试包，提供 `academic.command` 和旧 macOS 兼容入口 |
 | `SHA256SUMS` | 两个 ZIP 的 SHA-256 校验值 |
 
-两个包共享核心源码，不捆绑 Python、Node.js 或 Chrome。Python 最低为 3.9，新安装建议使用 3.11 或更高版本；扩展后端另需 Node.js 22 或更高版本，通过包内锁定文件安装 Playwright CLI 0.1.19。
+两个包共享 Python 核心，不捆绑运行环境。核心需要 Python 3.9 或更高版本；扩展后端按本项目安装要求使用 Node.js 22+，并通过包内锁定文件安装 Playwright CLI 0.1.19。Chrome 沿用用户自己的登录状态和机构权限。
 
-从 Beta 1 升级时，请整体替换 Skill 代码，保留个人文献目录和任务检查点；使用扩展后端时，在新目录重新安装锁定依赖。随后重新加载 Skill 或开启新的 Agent 会话，运行 `doctor` 确认版本为 `2.0.0-beta.2`。保留暂停记录，不要通过删除状态文件解除等待。
+从 Beta 2 升级时，整体替换 Skill 代码，保留文献目录及任务检查点。扩展方式须在新 Skill 目录重新安装锁定依赖，然后重新加载 Skill 或开启新的 Agent 会话，运行 `doctor` 确认版本为 `2.0.0-beta.3`，同时记录 `code_fingerprint`。不要通过删除暂停记录解除等待；自行编排任务的脚本也应改用统一 CLI。
 
 ## Windows 与 macOS 的扩展要求
 
-| 系统与连接方式 | 是否需要 Chrome 扩展 | 配置要求 | 验证状态 |
+| 系统与连接方式 | Chrome 扩展 | 所需设置 | 验收情况 |
 |---|---|---|---|
-| Windows 默认方式 | **需要**微软 Playwright 官方扩展 | 安装 Node.js 与锁定的 npm 依赖，在 Chrome 中完成扩展授权并选择标签 | 待 Windows 测试者实机验收 |
-| macOS 默认 Apple Events | **不需要扩展** | 启用 Chrome 的 Allow JavaScript from Apple Events，首次连接时授权系统自动化权限；无需 Node.js 或 npm 依赖 | Beta 1 已通过真实网站检索与下载；本轮通过行为回归 |
-| macOS 可选扩展方式 | **需要**同一个官方扩展 | 安装 Node.js 与锁定的 npm 依赖，每次命令加 `--backend extension`；无需启用 Apple Events JavaScript | 官方扩展连接尚未实测 |
+| Windows 默认方式 | **需要 Playwright 官方扩展** | 安装 Node.js 和锁定依赖，在 Chrome 完成扩展授权并选择标签 | 已有 Beta 2 的部分实机反馈；Beta 3 修复待 Windows 复测 |
+| macOS 默认 Apple Events | **不需要扩展** | 启用 Allow JavaScript from Apple Events，首次连接时授予系统自动化权限；无需 Node.js 或 npm 依赖 | Beta 1 已有真实网站检索与下载记录；本轮通过离线回归，未重新验收网站 |
+| macOS 可选扩展方式 | **需要同一个官方扩展** | 安装 Node.js 和锁定依赖，后续命令均加 `--backend extension`；无需启用 Apple Events JavaScript | 隔离 Chrome 测试通过，日常 Chrome 的官方扩展附着尚未实测 |
 
-扩展须安装自[微软 Playwright Extension 的 Chrome Web Store 页面](https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm)，上游项目见 [Playwright CLI](https://github.com/microsoft/playwright-cli)。两种方式均沿用用户自己的已登录 Chrome，网站权限取决于账户和机构授权。
+扩展安装地址为[微软 Playwright Extension](https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm)，上游工具见 [Playwright CLI](https://github.com/microsoft/playwright-cli)。本项目使用锁定版本，按下面的命令安装即可。
 
-Windows 在解压后的 `cnki-download` 目录打开 PowerShell，执行：
+Windows 在解压后的 `cnki-download` 目录打开 PowerShell，安装依赖并检查连接。
 
 ```powershell
 npm.cmd ci --ignore-scripts
@@ -55,7 +53,7 @@ npm.cmd ci --ignore-scripts
 .\academic.cmd --json doctor --browser
 ```
 
-macOS 默认方式在同一目录执行：
+macOS 默认方式使用包内启动入口。
 
 ```bash
 ./academic.command --json doctor
@@ -63,7 +61,7 @@ macOS 默认方式在同一目录执行：
 ./academic.command --json doctor --browser
 ```
 
-macOS 如选择扩展方式，先安装上述官方扩展，再执行：
+macOS 若选择扩展方式，先安装上述官方扩展，再运行以下命令，后续检索与下载也保留 `--backend extension`。
 
 ```bash
 npm ci --ignore-scripts
@@ -71,16 +69,25 @@ npm ci --ignore-scripts
 ./academic.command --backend extension --json doctor --browser
 ```
 
-`doctor` 检查运行环境，`doctor --browser` 再检查已连接标签。Chrome 使用自定义下载目录时，在命令最前面加入 `--downloads-dir "实际目录"`；启用“下载前询问保存位置”时，需人工处理保存窗口。结束后运行 `browser disconnect`，扩展方式保留 `--backend extension`，日常 Chrome 会继续保留。
+`doctor` 检查本地环境，`doctor --browser` 再读取已连接标签。Chrome 使用自定义下载目录时，在命令最前面加 `--downloads-dir "实际目录"`，供文件检查与人工恢复使用。系统保存窗口或网站验证仍可能需要用户处理，结束后可运行 `browser disconnect`，日常 Chrome 会保留。
 
-## 验证与待测范围
+## 中文检索入口
 
-本轮新增 15 项行为回归，离线套件共 52 项，其中 **51 项通过，1 项隔离 Chrome 测试默认跳过**，原有回归全部通过。单独启用的隔离 Chrome 测试也已通过，以模拟中文下载和出版社下载为例，验证了独立 HTTP 请求无法取得 PDF 后，从真实 Chrome 的同源链接下载并保留 Referer 的路径；这一结果能说明模拟条件下的处理流程可用，但不能据此认定真实出版社已完成验收。
+研究方向检索现在可以直接使用统一 CLI，专业检索式通过 `--expert` 指明。Windows 使用 `academic.cmd`，macOS 使用 `academic.command`；下面以 Windows 为例。
 
-两个安装包已在 macOS 下解压核验，版本与默认配置正确，题录生成和校验和检查通过；其中 macOS 包已运行启动入口，Windows 包则检查了 Python 入口，原生 Windows 启动入口仍需在实机上验证。
+```powershell
+.\academic.cmd --json search cnki "项目式学习" results.json --pages 2
+.\academic.cmd --json search cnki "SU='孟德尔随机化' AND SU='近视'" mr-myopia.json --expert
+```
 
-已有的真实网站依据来自 Beta 1：macOS 默认方式下完成了知网中文与外文流程，并验证了 Scholar 分页、WoS 登录后分页及 DRPress 公开 PDF 下载。本轮 Beta 2 没有重新运行 ZCode/GLM-5.3，也没有重新验收 Wiley、Elsevier 或真实 AWS WAF 场景，所以历史实测与本轮回归分别记录，完整证据见 [VERIFICATION.md](https://github.com/Alexme9125/academic-automation-skill/blob/v2.0.0-beta.2/VERIFICATION.md)。
+输出包含命中总数及本次提取的条目，保留结果行中的原文和真实详情链接，进度写在输出旁的检查点中。当前沿用网站提交检索后的默认排序，不能将结果称为被引排序；结果行也不能代替完整详情元数据，缺失字段仍需核实。下载和人工恢复的完整用法见[统一命令行说明](https://github.com/Alexme9125/academic-automation-skill/blob/v2.0.0-beta.3/references/cli.md)。
 
-本版面向能执行本地命令的 Coding Agents，Agent 与 Chrome 需位于同一台电脑。Windows 实机与 macOS 可选扩展仍待验证；Cursor、OpenCode 与 Qoder 的完整流程，以及外部模型收到验证提示后是否实际等待，均需按[平台与 Harness 验收说明](https://github.com/Alexme9125/academic-automation-skill/blob/v2.0.0-beta.2/references/acceptance.md)复测。真实 CAJ、跨盘文件占用和特殊保存窗口也不能由本轮 PDF 测试代替。云端桥接和独立 MCP 服务不在本版范围内。
+## 验证结果与待测范围
 
-测试者可据此检查：出现验证页面后，Agent 是否向用户提问并保持暂停？用户回复后，是否先核验已经保存的文件？再次遇到验证时，是否重新等待？反馈时请附系统和模型/Harness 版本、连接方式，以及 `doctor` 返回的版本与代码指纹，保留复现步骤和返回码，并记录用户回复时间、文件落盘情况及续跑结果，为后续修复提供可复现的依据。分享记录前请去除账号、令牌和机构身份信息。
+本轮新增 15 项行为回归，离线套件共 **67 项，其中 66 项通过，1 项隔离 Chrome 测试默认跳过**。单独启用的隔离 Chrome 测试通过，用时约 28.8 秒；模拟详情页的可见按钮需要真实点击事件才能发起下载，程序成功取得并归档 PDF，保留详情页 Referer，重复运行没有再次下载。隐藏的误导链接没有被选中。
+
+同一隔离测试还回归了出版社直接下载，以及独立 HTTP 无法取得 PDF 后的浏览器下载。两个发布包在 macOS 的中文和空格路径下完成解压检查，默认后端与版本正确，启动帮助和题录生成通过；Windows 原生启动入口仍需实机验证。完整记录见 [VERIFICATION.md](https://github.com/Alexme9125/academic-automation-skill/blob/v2.0.0-beta.3/VERIFICATION.md)。
+
+测试者复测应优先使用原来需要手点的文章，检查自动点击能否产生文件、没有下载事件时是否保留待人工、人工保存后是否避免重复下载，再检查长题名和中文路径。真实 CAJ 与系统保存窗口仍需覆盖，跨盘归档及文件占用也应在 Windows 上验证。各模型和 Harness 是否实际等待用户回复，需要分别记录，不能由程序测试代替。
+
+反馈请附系统和模型/Harness 版本、连接方式，以及 `doctor` 的版本与代码指纹；逐篇记录退出码、自动或人工保存、最终路径和续跑结果，核对初始清单与最终清单是否一致。分享下载诊断前去除账号与机构跳转参数，按[Windows DSH 复测清单](https://github.com/Alexme9125/academic-automation-skill/blob/v2.0.0-beta.3/references/acceptance.md#windows-dsh-反馈修复复测)提供可复现的依据。
