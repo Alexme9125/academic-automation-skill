@@ -1,5 +1,7 @@
 # Windows 安装（预览版）
 
+> **权限与安全提示：本 Skill 包含会让 Agent/Harness 向用户索要系统无障碍（辅助功能）及自动化权限的桌面操作流程，目前用于 macOS 原生保存。此提示在两个平台版本中均显著保留：若对 Agent/Harness 获取系统控制权限有任何安全顾虑，请勿使用本 Skill。Windows 当前通过扩展操作网页，系统保存窗口由用户处理；请审慎判断 Harness 请求的额外权限。**
+
 纯 PubMed 检索、元数据、题录和 PMC 官方公开文件只需要 Python 与网络，不需要 Chrome、Node.js 或扩展。先运行 `python3 scripts/academic.py --json doctor --capability pubmed-data`（Windows 用 `py -3`）。仅当转入出版社会话时，才需要以下浏览器配置。可选正文核验运行 `python3 -m pip install -r requirements-pdf.txt`；未安装仍可归档，但必须报告“正文未自动核验”。见 [PubMed 流程](pubmed.md)。
 
 面向 Windows 10/11 上能执行本地命令的 Coding Agents。已有 Windows 测试者回报部分流程跑通及下载问题，本版据此修复，真实扩展与网站仍待复测，各 Agent 需分别验收；不要把安装成功等同于功能验收通过。
@@ -24,5 +26,7 @@ npm.cmd ci --ignore-scripts
 Token 用于自动建立扩展连接，随后确认要操作的普通标签；若仍显示授权界面，由用户处理。执行命令的 Agent、Chrome 和文件必须在同一台电脑。扩展或浏览器没有连接时，CLI 会提示处理，不会改用新的登录配置。
 
 若 Chrome 下载位置不是用户 Downloads，请在命令最前面加入 `--downloads-dir "D:\文献下载"`。具体检索和下载命令见[统一命令行](cli.md)，验收步骤见[平台验收](acceptance.md)。
+
+**出现 PDF 查看器后，Playwright 自动保存尚未被证明稳定可用。** 自动获取和目录恢复均无文件时，Agent 必须先询问“仅整理题录”或“保留各篇标签页，由用户批量手动点击下载”，收到实际选择后再调整交付。保留页不得被下一篇覆盖；手动文件仍需核验归档。步骤见[自动保存受阻后的选择](cli.md#自动保存受阻后的选择)。
 
 操作结束运行 `.\academic.cmd browser disconnect`。升级时保留文献目录及其进度文件，替换 Skill 代码后重新执行 `npm.cmd ci --ignore-scripts`。不要将 `node_modules`、Chrome 配置、连接令牌或文献文件上传到仓库。

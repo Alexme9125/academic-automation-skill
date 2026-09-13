@@ -1,8 +1,12 @@
 # Academic Automation Skill
 
+> **重要权限与安全提示：本 Skill 会让 Agent/Harness 在执行 macOS 界面自动化及 PDF 原生保存时，向你索要系统无障碍（辅助功能）权限，以及控制 Chrome / System Events 的自动化权限。无障碍权限允许应用控制系统界面，授权范围不限于单个网页。若有任何安全顾虑，请勿使用本 Skill，也不要授予相关权限。**
+>
+> **此提示随 Windows 和 macOS 两个包分发。Windows 当前通过 Playwright 扩展操作网页，系统保存窗口由用户处理。请审慎判断所用 Agent/Harness 请求的任何额外系统控制权限。**
+
 PubMed development build (`2.0.0-beta.3.pubmed.1`): official API search and metadata, PMC-first downloads, shared access policy and optional PDF identity checks. Not a new public release; Beta 3 tags/assets remain unchanged. See [PubMed guide](references/pubmed.md) and [verification status](VERIFICATION.md).
 
-> **2.0.0-beta.3 跨平台预览版：**根据 Windows 测试反馈，扩展下载改为真实按钮点击并捕获下载事件，连接成功前核验标签，超时后保留待人工任务；新增中文知网统一检索入口。修复仍待 Windows 实机复测，macOS 默认保留 Apple Events。同一个 Release 提供 Windows/macOS 两个 ZIP，均不捆绑运行环境。请先阅读 [Windows 安装](references/install-windows.md)、[macOS 安装](references/install-macos.md)和[统一命令行](references/cli.md)。
+> **2.0.0-beta.3 跨平台预览版：**根据 Windows 测试反馈，扩展下载改为真实按钮点击并捕获下载事件，连接成功前核验标签，超时后保留待人工任务；新增中文知网统一检索入口。修复仍待 Windows 实机复测，macOS 仅使用 Apple Events。同一个 Release 提供 Windows/macOS 两个 ZIP，均不捆绑运行环境。请先阅读 [Windows 安装](references/install-windows.md)、[macOS 安装](references/install-macos.md)和[统一命令行](references/cli.md)。
 
 
 [English](README.md) | **简体中文**
@@ -30,6 +34,8 @@ PubMed development build (`2.0.0-beta.3.pubmed.1`): official API search and meta
 ### 文献下载
 
 在**用户自身拥有合法访问权限**的情况下，自动执行部分文献下载流程。
+
+**Playwright 在出现 PDF 查看器时，尚不能保证稳定自动下载。** 自动保存及目录恢复均未得到文件时，Agent 会先询问“仅整理题录”或“保留各篇标签页，由用户批量手动点击下载”，收到选择后再调整交付；手动保存后仍须核验归档。
 
 Academic Automation Skill 本身不提供数据库账户，也不提供订阅、机构访问权限或付费内容。
 
@@ -59,7 +65,7 @@ Academic Automation Skill 本身不提供数据库账户，也不提供订阅、
 
 Windows 10/11：通过 Playwright CLI 与官方 Chrome 扩展连接日常浏览器，当前为待实机验收的预览支持。
 
-macOS：默认通过 Apple Events 控制 Chrome，也可显式选择扩展后端。
+macOS：仅通过 Apple Events 控制 Chrome，原生保存使用 System Events；Skill 不使用 Playwright，也不将其作为故障回退方案。
 
 Python 核心需要 Python 3.9 或更高版本（新安装建议使用仍受支持的版本）。扩展后端还需要 Node.js 22 或更高版本及固定的 npm 依赖。Linux 只声明离线数据处理支持。
 
@@ -85,7 +91,7 @@ Python 核心需要 Python 3.9 或更高版本（新安装建议使用仍受支�
 cp -R . ~/.agents/skills/cnki-download
 ```
 
-Agent 操作说明见 `SKILL.md`。macOS 默认后端需勾选 **Allow JavaScript from Apple Events**；Windows 及 macOS 扩展后端按平台安装说明配置。
+Agent 操作说明见 `SKILL.md`。macOS 需勾选 **Allow JavaScript from Apple Events**，浏览器命令使用 `--backend apple-events`；Windows 扩展按平台安装说明配置，并在连接前提供 Token。
 
 历史 macOS 版本曾在以下环境中测试；新跨平台版本的兼容性仍需重新验收：
 

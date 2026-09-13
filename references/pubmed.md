@@ -32,7 +32,7 @@ python3 scripts/academic.py --json batch selected.json --source pubmed --dest pa
 
 默认文件名 `PMID-<编号>.pdf`，便于 Windows 长路径控制。`--name` 仅为文件名，不含目录，最长 180 个 UTF-8 字节。目标目录过深仍可能超过 Windows 路径限制，应缩短目录。存储源链接、大小和 SHA-256；同名加序号，不覆盖原文件。归档先复制、同步和核验，再删除源文件。
 
-macOS 默认 Apple Events，不装扩展；Windows 出版社会话必须安装 [Playwright 官方扩展](install-windows.md)。macOS 也可选同一扩展后端。两端扩展监听真实下载事件；无事件先检查下载目录，不重复点击。Apple Events 先尝试页内下载；确认没有落盘后，可识别 Chrome 内置 PDF 查看器的“下载”按钮及 macOS 保存窗口，自动选目录、保存和归档，额外权限见 [macOS 安装](install-macos.md)。macOS 扩展后端也可使用此保存逻辑，但须先核对扩展标签与原生窗口、标签、PDF 地址一致；Windows 的系统保存仍交给用户。
+macOS 仅使用 Apple Events，显式传 `--backend apple-events`，不使用 Playwright；Windows 出版社会话须安装 [Playwright 官方扩展](install-windows.md)并先提供 Token。Windows 扩展监听真实下载事件，无事件先检查下载目录，不重复点击。macOS 先尝试页内下载；确认没有落盘后，可识别 Chrome 内置 PDF 查看器的“下载”按钮及系统保存窗口，自动选目录、保存和归档，额外权限见 [macOS 安装](install-macos.md)。Windows 查看器自动保存尚不能保证稳定，受阻时先询问“仅题录”或“保留标签页、批量手动下载”，等待实际选择，见[受阻后的选择](cli.md#自动保存受阻后的选择)。
 
 自动保存记录点击前检查点，只对当前绑定的 PDF 操作；不点 Google Drive 或覆盖确认。保存快捷键和回车仅用于已识别的保存窗口及其“前往文件夹”子窗口。程序收到不明操作结果后不重复点击，先检查任务暂存文件和下载目录；已经落盘可直接恢复。只有明确停在点击前的检查失败，才可在用户回复后重新尝试原生操作。无法识别的窗口仍由用户处理。
 
@@ -43,7 +43,7 @@ python3 scripts/academic.py browser status
 python3 scripts/academic.py browser resolve --pending-id <当前ID> --decision retry --note "用户的实际回复"
 ```
 
-再重跑原下载或 batch 命令。已有文件在任何请求之前核验，保存完文件也可直接重跑恢复；明确手动文件用 `archive papers --file <PDF路径> --checkpoint <下载检查点>`。`--retry` 本身不能解除未确认的人工暂停。只有用户明确跳过时使用 `--decision skip`。
+再重跑原下载或 batch 命令。已有文件在任何请求之前核验，保存完文件也可直接重跑恢复；明确手动文件用 `archive papers --file <PDF路径> --checkpoint <下载检查点>`。`--retry` 本身不能解除未确认的人工暂停。用户明确跳过，或选择取消当前自动下载并改为仅题录/人工队列时，才按统一交接使用 `--decision skip`，报告分别标明其选择。
 
 批量状态保存在 `<清单>.batch-progress.json`，核对初始 PMID、当前选定 PMID、每篇状态和统计。暂停会停止后续篇目；清单重排时优先恢复仍在等待的那篇。同一份清单的 `access_policy` 会传给子命令，不作为跨任务默认值。状态目录可能含机构跳转地址，不能放进发布包。
 

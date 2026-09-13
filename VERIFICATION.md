@@ -1,5 +1,11 @@
 # PubMed 双平台开发构建验证（2026-09-13）
 
+## 当前使用规则：macOS 仅 Apple Events
+
+按用户最新要求，macOS Skill 流程仅使用 Apple Events / System Events，不再使用或回退到 Playwright；下方 macOS 扩展实验只作历史证据，不构成继续使用的指引。Playwright 查看器自动保存尚未通过稳定性验收，Windows 自动保存受阻且无落盘时，须先询问“仅题录”或“保留标签页、批量手动下载”，按实际选择调整交付。
+
+两种语言 README 和两端安装说明均以普通字号加粗突出系统无障碍权限及“有安全顾虑请勿使用”。本次修改为 Skill、文档及验收规则，未修改运行源码；核对文档链接、Skill 元数据、双平台打包和解压入口。保留标签页的批量人工编排新增于本次指引，仍需真实 Harness 验收，不能以已有离线测试或此前三个自动归档样本证明该编排已通过。
+
 ## 2026-09-13：扩展 Token 前置流程
 
 按用户要求，新建 Playwright 扩展连接前必须先提供进程环境 `PLAYWRIGHT_MCP_EXTENSION_TOKEN`。缺少或仅含空白时，连接入口在启动 Playwright 和修改已有连接元数据前返回 `needs_user`；已有会话沿用。`doctor` 只报告 Token 是否存在，不输出值、不宣称认证已验证。同步更新 Skill 及两端安装说明。

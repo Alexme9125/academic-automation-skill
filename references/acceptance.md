@@ -15,7 +15,7 @@ python3 scripts/academic.py --json doctor
 
 ## 真实浏览器验收
 
-1. 使用日常已登录 Chrome，运行 `browser connect`。Windows 默认及 macOS 可选扩展后端须在官方扩展界面选定标签；macOS 默认 Apple Events 后端直接绑定当前标签，须先启用 Allow JavaScript from Apple Events。运行 `doctor --browser` 确认标题与 URL。
+1. 使用日常已登录 Chrome，运行 `browser connect`。Windows 扩展后端须先提供 Token，再确认任务普通标签；macOS 仅用 Apple Events，显式传 --backend apple-events 绑定当前标签，须先启用 Allow JavaScript from Apple Events。运行 `doctor --browser` 确认标题与 URL。
 2. CNKI 中文：用自己有访问权限的一篇论文的完整题名和第一作者下载；核对题名作者、PDF/CAJ 类型、实际路径。输出目录使用含中文和空格的路径。
 3. CNKI 外文：检索一页，提取两条详情元数据，核对完整 DOI 和生成的链接目录。
 4. Scholar：检索两页，核对重复 URL 去重和重复运行的缓存使用。WoS：检索两页，核对虚拟列表累计数量。
@@ -61,14 +61,14 @@ Harness 可将 `wait_for_user=true` 直接映射为暂停调度，只允许只�
 
 ## PubMed 开发构建验收
 
-macOS 查看器另需验收：默认 Apple Events 及 macOS 扩展后端在具备辅助功能权限时自动点击下载并保存到中文及空格目录；无权限、错误标签和未知弹窗保持暂停。保存后重跑不再点击，记录归档数、正文核验数和 SHA-256。真实样本及支持边界见 [原生保存验收](macos-pdf-save-acceptance.md)。这不替代 Windows 扩展及人工保存恢复测试。
+macOS 查看器另需验收：Apple Events 在具备辅助功能权限时自动点击下载并保存到中文及空格目录；无权限、错误标签和未知弹窗保持暂停。保存后重跑不再点击，记录归档数、正文核验数和 SHA-256。真实样本及支持边界见 [原生保存验收](macos-pdf-save-acceptance.md)。这不替代 Windows 扩展及人工保存恢复测试。
 
 版本 `2.0.0-beta.3.pubmed.1` 为本地测试包，未发布新 Pre-Release。使用同一份已解压 Skill，先记录 `doctor --capability pubmed-data` 的版本、指纹、平台、Python、pypdf 和浏览器能力。
 
 1. 不启动 Chrome、不安装 Node 时，运行 PubMed 三篇样本检索及元数据命令，确认查询保留 `[uid]` 和 OR、默认 Best Match、总数和抽取数为 3；再测 `--pages 2`、`--sort pub_date` 与缓存重跑。三篇 PMID 为 `37935836`、`31647093`、`28527048`。
 2. 检查 PMID 28527048 的 DOI 为 `10.1007/s10654-017-0255-x`，关联勘误 PMID 28664250 单独记录。PMC10719501 的正式发表版本是 1，不能选择较大的作者稿版本 358。
 3. 创建带 `access_policy` 和三篇 `rows` 的 JSON，运行 `batch 清单.json --source pubmed --dest "文献 测试"`。核对初始清单与最终每篇状态；重排后再运行，已归档文件路径、SHA-256 和数量不变。
-4. PMC 直接下载应无需浏览器。Oxford 在 macOS 默认 Apple Events 与可选扩展分别测试；Windows 使用 Playwright 官方扩展。记录实际是否自动落盘、是否进入 PDF 查看器或保存窗口，不能将隔离 Chrome 传输测试当作真实扩展附着结果。
+4. PMC 直接下载应无需浏览器。Oxford 在 macOS 仅测试 Apple Events；Windows 使用 Playwright 官方扩展。记录实际是否自动落盘、是否进入 PDF 查看器或保存窗口，不能将隔离 Chrome 传输测试当作真实扩展附着结果。
 5. 验证出现时确认 Agent 发问并等真实回复，保持当前篇；不切换来源或下一篇。回复后保持同篇页面。手动保存后先核验已有文件，不发第二次下载；结束断开连接，用户浏览器应继续保留。
 6. 两平台测试有/无 pypdf、解析/文字提取失败、明确错篇和附录，核对“已归档”与“正文自动核验”数量独立。没有 pypdf 也应完成归档并在最终答复中解释用途、安装方法和本轮风险。错篇、传输不完整和已安装解析器发现的解析失败不得计入成功正文；这些旧缓存也不能跳过。
 7. Windows 原生环境检查中文/空格/长路径、同名、文件占用、跨盘复制与系统保存；原生 `academic.cmd` 启动入口需要在 Windows 验证。macOS 解压 Windows 包并运行 Python 不能替代这些结果。
@@ -83,5 +83,9 @@ macOS 查看器另需验收：默认 Apple Events 及 macOS 扩展后端在具�
 | 无免费标记、出现验证码、明确收费各一例 | 分别记录未知、待用户、订阅，不合并为无权限 |
 | 人工验证尚未完成 | 不自行 resolve，不改做仅题录，不继续下一篇 |
 | 已人工保存并回复 | 先核验现有文件，避免重复下载 |
+| macOS 环境仍有旧扩展配置 | 显式使用 apple-events，不索要 Token、不安装扩展、不切换为 Playwright |
+| Windows 查看器已打开，自动保存和目录恢复均无文件 | 询问仅题录或保留标签页批量手动下载，等待实际选择 |
+| 用户选择保留标签页、批量手动下载 | 记录取消自动下载的实际选择；保留原页，下一篇新建标签；按清单报告已打开与未打开，不把待手动记为已下载 |
+| Agent/Harness 请求系统无障碍权限 | 先说明用途与控制范围；用户有安全顾虑或拒绝时停止，不换后端绕过 |
 
 真实 Windows 验收仍由测试者完成；上述清单是待执行步骤，不是通过声明。

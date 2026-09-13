@@ -2,13 +2,21 @@
 
 所有命令均从 Skill 根目录运行。Windows 将下列 `python3` 换成 `py -3`，或使用下载包根目录的 `academic.cmd` 代替 `python3 scripts/academic.py`；macOS 可用 `./academic.command`。Python 核心无需 pip 安装。
 
-全局选项放在子命令之前：`--json`、`--backend extension|apple-events`、`--session NAME`、`--downloads-dir PATH`。默认 macOS 使用 Apple Events，Windows 使用 extension。`CNKI_DOWNLOADS_DIR` 可持久指定 Chrome 实际下载目录；用户自定义下载目录或开启“保存前询问”时须明确该路径。
+全局选项放在子命令之前：`--json`、`--backend extension|apple-events`、`--session NAME`、`--downloads-dir PATH`。Skill 在 macOS 仅使用 Apple Events，浏览器命令须显式加 `--backend apple-events`；Windows 使用 extension。本页后续通用浏览器命令在 macOS 均加此前缀，不使用扩展示例。`CNKI_DOWNLOADS_DIR` 可持久指定 Chrome 实际下载目录；用户自定义下载目录或开启“保存前询问”时须明确该路径。
 
 PubMed、知网外文、WoS、Scholar 检索及外文下载在子命令后使用共享的 `--access-policy all|free-only|free-plus-bib`。**以下涉及该参数的示例以用户已回答相应选择为前提，不能把示例中的 all 当成默认授权。** 用户未说明时先确认是否考虑订阅，拒绝后再问放弃还是保留题录；规则见 [SKILL.md](../SKILL.md#对话流程)。
 
 ## 连接与诊断
 
-以下扩展连接命令以已完成[Token 前置步骤](#连接前的-token)为前提。
+macOS 使用：
+
+```text
+python3 scripts/academic.py --backend apple-events --json doctor
+python3 scripts/academic.py --backend apple-events browser connect
+python3 scripts/academic.py --backend apple-events --json doctor --browser
+```
+
+以下扩展连接命令仅用于 Windows，以已完成[Token 前置步骤](#连接前的-token)为前提。
 
 ```text
 python3 scripts/academic.py --json doctor
@@ -29,7 +37,7 @@ python3 scripts/academic.py --backend extension browser disconnect
 
 ### 连接前的 Token
 
-本 Skill 按“先提供 Token，再建立扩展连接”执行：
+Windows 的 Skill 流程按“先提供 Token，再建立扩展连接”执行；macOS 不索要 Token：
 
 1. 选择扩展后端后，运行 `--backend extension --json doctor`，只查看 `capabilities.browser.extension_token.present`，不要打印环境变量值。
 2. 若为 `false` 且没有可沿用的已连接会话，向用户说明：“请从 Chrome 的 Playwright 官方扩展图标或状态页复制 Token，并将其提供给运行 Agent 的进程环境 `PLAYWRIGHT_MCP_EXTENSION_TOKEN`；提供后再开始连接。”等待实际提供。优先使用 Harness 的私密环境变量注入方式；用户已在本任务中提供时，Agent 直接向连接进程传入，不再索要。
@@ -100,7 +108,24 @@ python3 scripts/academic.py --json browser resolve --pending-id "返回的 pendi
 
 页面等待超时和跳转竞态属于暂时性错误，返回 70，保留已有 pending；批量在 70 或 75 时也停止，不打开下一篇。只读探测会有限重试上下文切换，点击、提交和下载不会因此自动重放。检查当前页面及下载文件后，再恢复原任务。
 
-只有用户明确要求跳过当前篇才调用 `browser resolve --pending-id "..." --decision skip --note "用户实际回复"`，记录为 `skipped_by_user`，不能改写成“无权限”。重跑已跳过条目返回退出码 6 / `skipped`；批量会保留跳过状态并继续其余篇目。用户后来要求重新尝试，可用原 `pending-id` 再记录 `retry` 决定。
+用户明确要求跳过当前篇，或按下节选择结束当前自动下载并改为仅题录/人工队列后，才调用 `browser resolve --pending-id "..." --decision skip --note "用户实际回复及交付选择"`。CLI 的 `skipped_by_user` 表示取消这项自动下载；最终文献报告须按实际选择标成“用户跳过”“用户选择仅题录”或“待手动下载”，不能改写成“无权限”。重跑已跳过的自动任务返回退出码 6 / `skipped`；用户后来要求重新尝试，可用原 `pending-id` 再记录 `retry` 决定。
+
+### 自动保存受阻后的选择
+
+Playwright 下正文已打开、自动保存及目录恢复均无文件时，先问：“本轮这类文献是仅整理题录，还是保留各篇标签页，最后由你批量手动点击下载？”这不是默认跳过授权；等待用户的实际选择。登录、验证码与 Cookie 遮罩仍先按原交接处理，不能直接判成无法下载。
+
+- **仅整理题录**：用户明确改为仅题录后，按上节取消当前自动下载，生成含真实来源链接的目录，标记“用户选择仅题录”；不算全文已归档。
+- **保留标签页、批量手动下载**：先将本轮选定篇目写入任务目录的 `待手动下载.md`，记录题名、作者、真实详情/正文链接、已有文件、下载检查点、暂停 ID、当前标签是否已保留及保存目录。收到选择后取消受阻的自动下载，理由写明“用户改为保留标签页、稍后手动下载”；保留原页。其余篇目按清单串行新建任务标签，不能在保留页上运行 `download` / `search` 去导航下一篇，也不能关闭已保留页。只把实际确认打开的标签标成“已打开”，其余保持“未打开”。
+
+Windows 可在 Token 已提供且当前自动下载已按实际回复结束后，用统一入口为下一篇新建标签；URL 必须来自本轮已核对的清单：
+
+```text
+py -3 scripts/academic.py --backend extension --session <本轮会话> browser connect --url "<下一篇真实详情页或正文URL>"
+```
+
+每次确认旧页仍保留、绑定的是新页，再处理下一条。连接或验证再度受阻时保留现状并说明所需动作，不反复重连；不能保留旧页时暂停准备，交付清单和真实已打开数量。用户选择批量手动下载后不再运行自动下载批次，而是请用户在保留标签中集中逐篇点击下载和保存；这不是一键下载所有标签的承诺。
+
+用户保存后按题名、作者与文件内容逐篇核验。已有下载检查点使用 `archive <目录> --file "<明确文件>" --checkpoint "<该篇检查点>"`；没有检查点的文件也须先核对篇目，再用 `archive --file`。不能按“最新文件”猜归属，也不能只凭浏览器标签打开就计为已下载。汇报单列“待手动下载”，自动批次中的 `skipped` 不代替人工队列状态。
 
 不要编造用户回复、删除暂停文件、切换状态目录，或绕到自写 curl/浏览器脚本继续任务。该机制约束本项目入口；拥有本地命令权限的模型仍能绕开它，所以 Harness 也应在接到 `needs_user` 后中止浏览器调度，并且仅在收到用户消息后提供 `resolve` 调用。
 

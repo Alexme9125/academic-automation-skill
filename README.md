@@ -1,8 +1,12 @@
 # Academic Automation Skill
 
+> **IMPORTANT — ACCESSIBILITY PERMISSIONS AND SAFETY: This Skill will have your Agent/Harness request system Accessibility permission, plus automation access to Chrome / System Events, when performing macOS UI automation and native PDF saving. Accessibility permission allows an application to control system UI beyond an individual webpage. If you have any security concerns, DO NOT USE THIS SKILL or grant these permissions.**
+>
+> **This notice ships in both Windows and macOS packages. Windows currently uses the Playwright extension for webpages and leaves system Save dialogs to the user. Assess any additional system-control permissions requested by your Agent/Harness carefully.**
+
 PubMed development build (`2.0.0-beta.3.pubmed.1`): official API search and metadata, PMC-first downloads, shared access policy and optional PDF identity checks. Not a new public release; Beta 3 tags/assets remain unchanged. See [PubMed guide](references/pubmed.md) and [verification status](VERIFICATION.md).
 
-> **2.0.0-beta.3 cross-platform preview:** fixes extension downloads with actual button clicks and download-event capture, verifies browser attachment, and preserves pending tasks after timeouts. Adds Chinese CNKI search to the shared CLI. Windows tester feedback informed these changes; real Windows retesting is pending. macOS keeps Apple Events as its default. Download the Windows or macOS ZIP from the same Release; neither ZIP bundles runtimes. Start with [Windows installation](references/install-windows.md), [macOS installation](references/install-macos.md), and the [shared CLI](references/cli.md).
+> **2.0.0-beta.3 cross-platform preview:** fixes extension downloads with actual button clicks and download-event capture, verifies browser attachment, and preserves pending tasks after timeouts. Adds Chinese CNKI search to the shared CLI. Windows tester feedback informed these changes; real Windows retesting is pending. macOS uses Apple Events only. Download the Windows or macOS ZIP from the same Release; neither ZIP bundles runtimes. Start with [Windows installation](references/install-windows.md), [macOS installation](references/install-macos.md), and the [shared CLI](references/cli.md).
 
 
 **English** | [简体中文](README.zh-CN.md)
@@ -30,6 +34,8 @@ Perform preliminary filtering based on titles, keywords, abstracts, and other av
 ### Literature Download
 
 When the user already holds legitimate access to a paper, parts of the download process are automated.
+
+**Reliable automatic saving from a PDF viewer is not established for the Playwright route.** If automatic saving and file recovery yield no file, the Agent asks whether to deliver bibliography only or preserve each paper’s tab for batch manual downloading. It waits for your choice, then verifies and archives manually saved files.
 
 Academic Automation Skill does **not** provide database accounts, subscriptions, institutional access, or paid content.
 
@@ -59,7 +65,7 @@ Academic platforms may change their page structures, authentication mechanisms, 
 
 Windows 10/11: preview support through Playwright CLI and the official Chrome extension; real Windows acceptance is pending.
 
-macOS: Apple Events remains the default; the extension backend is optional.
+macOS: use Apple Events only, with System Events for native saving. Skill workflows must not use Playwright or switch to it after a failure.
 
 The shared core needs Python 3.9+. For new installations use a supported Python release. The extension backend also needs Node.js 22+ and the pinned npm dependencies. Linux support is limited to offline processing.
 
@@ -83,7 +89,7 @@ Example (Codex / local skills folder):
 cp -R . ~/.agents/skills/cnki-download
 ```
 
-Agent instructions live in `SKILL.md`. The macOS default backend needs **Allow JavaScript from Apple Events**; the extension backend uses the platform installation instructions.
+Agent instructions live in `SKILL.md`. macOS needs **Allow JavaScript from Apple Events** and explicit `--backend apple-events`; follow the Windows installation instructions for the extension and supply its Token before connecting.
 
 Tested with:
 
