@@ -167,6 +167,12 @@ def resume_download(checkpoint, dest, author='', retry=False, name=''):
         candidate = state.get('candidate')
         if candidate and dw.valid_file(candidate):
             return finish_download(candidate, dest, checkpoint, state, name)
+        if state.get('native_save'):
+            from .native_save import recovered_file
+            candidate = recovered_file(state, checkpoint=checkpoint)
+            if candidate:
+                state['native_save']['status'] = 'file_verified'
+                return finish_download(candidate, dest, checkpoint, state, name)
         if 'downloads' in state:
             try:
                 candidate = dw.wait_download(state['downloads'], state['before'], author,
@@ -175,6 +181,12 @@ def resume_download(checkpoint, dest, author='', retry=False, name=''):
             except BrowserError as exc:
                 if exc.code != 4:
                     raise
+        if state.get('native_save'):
+            from .native_save import needs_user, can_retry_preflight, save_pdf
+            if retry and can_retry_preflight(state):
+                candidate = save_pdf(checkpoint, state, state['native_save']['url'], retry_preflight=True)
+                if candidate: return finish_download(candidate, dest, checkpoint, state, name)
+            raise needs_user(checkpoint, state, 'Previous native Save remains unresolved; inspect its dialog or saved file')
         if not retry:
             raise BrowserError('NEEDS_USER: save the PDF/CAJ, then repeat this command; use --retry only to issue a new request', 2,
                                {'checkpoint': str(checkpoint), 'downloads': state.get('downloads', '')})

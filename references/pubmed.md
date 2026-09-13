@@ -32,9 +32,11 @@ python3 scripts/academic.py --json batch selected.json --source pubmed --dest pa
 
 默认文件名 `PMID-<编号>.pdf`，便于 Windows 长路径控制。`--name` 仅为文件名，不含目录，最长 180 个 UTF-8 字节。目标目录过深仍可能超过 Windows 路径限制，应缩短目录。存储源链接、大小和 SHA-256；同名加序号，不覆盖原文件。归档先复制、同步和核验，再删除源文件。
 
-macOS 默认 Apple Events，不装扩展；Windows 出版社会话必须安装 [Playwright 官方扩展](install-windows.md)。macOS 也可选同一扩展后端。两端扩展监听真实下载事件；无事件先检查下载目录，不重复点击。Apple Events 保留页内下载。两端的系统保存窗口均允许用户处理，不发送盲目的保存快捷键或回车。
+macOS 默认 Apple Events，不装扩展；Windows 出版社会话必须安装 [Playwright 官方扩展](install-windows.md)。macOS 也可选同一扩展后端。两端扩展监听真实下载事件；无事件先检查下载目录，不重复点击。Apple Events 先尝试页内下载；确认没有落盘后，可识别 Chrome 内置 PDF 查看器的“下载”按钮及 macOS 保存窗口，自动选目录、保存和归档，额外权限见 [macOS 安装](install-macos.md)。该原生保存暂不用于扩展后端或 Windows。
 
-遇验证、登录或保存窗口：保持当前篇，提问并等待实际回复。不能转来源或转下一篇来逃离暂停，也不能直接改为仅题录。用户处理后：
+自动保存记录点击前检查点，只对当前绑定的 PDF 操作；不点 Google Drive 或覆盖确认。保存快捷键和回车仅用于已识别的保存窗口及其“前往文件夹”子窗口。程序收到不明操作结果后不重复点击，先检查任务暂存文件和下载目录；已经落盘可直接恢复。只有明确停在点击前的检查失败，才可在用户回复后重新尝试原生操作。无法识别的窗口仍由用户处理。
+
+遇验证、登录或程序返回 `needs_user`（包括无法自动处理的保存窗口）：保持当前篇，提问并等待实际回复。正在执行的受控保存步骤由 CLI 完成。不能转来源或转下一篇来逃离暂停，也不能直接改为仅题录。用户处理后：
 
 ```text
 python3 scripts/academic.py browser status

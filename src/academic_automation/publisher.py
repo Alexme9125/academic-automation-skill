@@ -198,6 +198,10 @@ def _article(final, doi, dest, name, checkpoint, state, free, links):
         path = dw.wait_download(folder, state['before'], since=state['since'], timeout=12, page='publisher')
     except BrowserError as exc:
         if exc.code not in (2, 4, 70): raise
+        if exc.code == 4 and backend_name() == 'apple-events':
+            from .native_save import save_pdf
+            path = save_pdf(checkpoint, state, links[0])
+            if path: return finish_download(path, dest, checkpoint, state, name)
         raise BrowserError('NEEDS_USER: handle verification or save the displayed PDF, then resume this article', 2,
                            {'checkpoint': str(checkpoint), 'downloads': str(folder), 'url': links[0], 'cause': str(exc)}) from exc
     return finish_download(path, dest, checkpoint, state, name)

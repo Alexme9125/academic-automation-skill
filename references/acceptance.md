@@ -61,6 +61,8 @@ Harness 可将 `wait_for_user=true` 直接映射为暂停调度，只允许只�
 
 ## PubMed 开发构建验收
 
+macOS 查看器另需验收：默认 Apple Events 后端在具备辅助功能权限时自动点击下载并保存到中文及空格目录；无权限、错误标签和未知弹窗保持暂停。保存后重跑不再点击，记录归档数、正文核验数和 SHA-256。真实样本及支持边界见 [原生保存验收](macos-pdf-save-acceptance.md)。这不替代 Windows 扩展及人工保存恢复测试。
+
 版本 `2.0.0-beta.3.pubmed.1` 为本地测试包，未发布新 Pre-Release。使用同一份已解压 Skill，先记录 `doctor --capability pubmed-data` 的版本、指纹、平台、Python、pypdf 和浏览器能力。
 
 1. 不启动 Chrome、不安装 Node 时，运行 PubMed 三篇样本检索及元数据命令，确认查询保留 `[uid]` 和 OR、默认 Best Match、总数和抽取数为 3；再测 `--pages 2`、`--sort pub_date` 与缓存重跑。三篇 PMID 为 `37935836`、`31647093`、`28527048`。

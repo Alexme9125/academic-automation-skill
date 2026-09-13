@@ -8,6 +8,10 @@
 
 默认后端为 Apple Events，**不需要安装浏览器扩展、Node.js 或 npm 依赖**。启用 Google Chrome → View → Developer → Allow JavaScript from Apple Events。使用自己的已登录 Chrome，系统首次请求应用自动化权限时按实际需要授权。
 
+出版社 PDF 只在 Chrome 查看器显示、未落盘时，默认后端会尝试通过 Apple Events 与 System Events 点击“下载”，在识别到的 macOS 保存窗口中选择任务暂存目录，再核验归档。这一步另需在“系统设置 → 隐私与安全性 → 辅助功能”中授权**实际运行 Agent 的应用**（例如 Codex 或终端）；自动化授权也须允许该应用控制 Chrome 和 System Events。仅用 PubMed 接口、PMC 直接下载或普通页内下载时不要求辅助功能权限。
+
+自动保存期间保持任务 PDF 为 Chrome 当前标签。程序可将 Chrome 激活到前台，但不会切换用户另选的标签；用户切走窗口、出现无法识别的对话框或权限不足时停止。暂存路径由程序生成，同名归档不覆盖。当前适配的是 Chrome 内置查看器和标准保存窗口，其他查看器交给用户处理。已验证本机英文系统界面；中文控件文字有离线覆盖，尚未做真实系统语言切换验收。
+
 ```text
 python3 scripts/academic.py --json doctor
 python3 scripts/academic.py browser connect
