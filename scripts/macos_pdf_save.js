@@ -36,6 +36,17 @@ function checkDestination(controls, filename, folder) {
   if (controls.filename.value !== filename || controls.folder.value !== folder)
     throw new Error('SAVE_DESTINATION_CHANGED');
 }
+function matchesNativeWindow(title, bounds, native) {
+  // Chrome adds this observed suffix for the official extension's tab group.
+  // Keep exact document title, standard window role and geometry checks.
+  var suffix = native.name.slice(title.length);
+  return native.name.slice(0, title.length) === title &&
+    (suffix === ' - Google Chrome' || /^ - Part of group .+ - Google Chrome$/.test(suffix)) &&
+    native.role === 'AXWindow' && native.subrole === 'AXStandardWindow' &&
+    [bounds.x, bounds.y, bounds.width, bounds.height].every(function(v, i) {
+      return typeof v === 'number' && Math.abs(v - native.geometry[i]) <= 2;
+    });
+}
 
 function run(argv) {
   ObjC.import('Foundation');
@@ -57,13 +68,19 @@ function run(argv) {
       if (requireFront && !process.frontmost()) throw new Error('CHROME_FOCUS_CHANGED');
       var ax = process.windows();
       // Browser id plus active tab and AX title bind the native sheet to this PDF.
-      if (!ax.length || ax[0].name() !== windows[0].name() + ' - Google Chrome')
+      if (!ax.length || !matchesNativeWindow(windows[0].name(), windows[0].bounds(), {
+        name:ax[0].name(), role:ax[0].role(), subrole:ax[0].subrole(),
+        geometry:ax[0].position().concat(ax[0].size())
+      }))
         throw new Error('NATIVE_WINDOW_NOT_IDENTIFIED');
       return ax[0];
     }
     var window = guard(false);
     if (window.sheets().length) throw new Error('EXISTING_DIALOG_REQUIRES_USER');
-    if (chrome.execute(chrome.windows()[0].activeTab(), {javascript: 'document.contentType'}) !== 'application/pdf')
+    // The extension already read the MIME type and matched native window/tab/URL.
+    // Its native save does not require enabling JavaScript from Apple Events.
+    if (!(request.backend === 'extension' && request.pdf_type_verified === true)
+        && chrome.execute(chrome.windows()[0].activeTab(), {javascript: 'document.contentType'}) !== 'application/pdf')
       throw new Error('PAGE_IS_NOT_PDF');
     chrome.activate();
     delay(0.25);
@@ -153,4 +170,4 @@ function run(argv) {
     }
   }
 }
-if (typeof module !== 'undefined') module.exports = {downloadButton:downloadButton, saveControls:saveControls, checkDestination:checkDestination};
+if (typeof module !== 'undefined') module.exports = {downloadButton:downloadButton, saveControls:saveControls, checkDestination:checkDestination, matchesNativeWindow:matchesNativeWindow};

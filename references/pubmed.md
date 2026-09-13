@@ -32,7 +32,7 @@ python3 scripts/academic.py --json batch selected.json --source pubmed --dest pa
 
 默认文件名 `PMID-<编号>.pdf`，便于 Windows 长路径控制。`--name` 仅为文件名，不含目录，最长 180 个 UTF-8 字节。目标目录过深仍可能超过 Windows 路径限制，应缩短目录。存储源链接、大小和 SHA-256；同名加序号，不覆盖原文件。归档先复制、同步和核验，再删除源文件。
 
-macOS 默认 Apple Events，不装扩展；Windows 出版社会话必须安装 [Playwright 官方扩展](install-windows.md)。macOS 也可选同一扩展后端。两端扩展监听真实下载事件；无事件先检查下载目录，不重复点击。Apple Events 先尝试页内下载；确认没有落盘后，可识别 Chrome 内置 PDF 查看器的“下载”按钮及 macOS 保存窗口，自动选目录、保存和归档，额外权限见 [macOS 安装](install-macos.md)。该原生保存暂不用于扩展后端或 Windows。
+macOS 默认 Apple Events，不装扩展；Windows 出版社会话必须安装 [Playwright 官方扩展](install-windows.md)。macOS 也可选同一扩展后端。两端扩展监听真实下载事件；无事件先检查下载目录，不重复点击。Apple Events 先尝试页内下载；确认没有落盘后，可识别 Chrome 内置 PDF 查看器的“下载”按钮及 macOS 保存窗口，自动选目录、保存和归档，额外权限见 [macOS 安装](install-macos.md)。macOS 扩展后端也可使用此保存逻辑，但须先核对扩展标签与原生窗口、标签、PDF 地址一致；Windows 的系统保存仍交给用户。
 
 自动保存记录点击前检查点，只对当前绑定的 PDF 操作；不点 Google Drive 或覆盖确认。保存快捷键和回车仅用于已识别的保存窗口及其“前往文件夹”子窗口。程序收到不明操作结果后不重复点击，先检查任务暂存文件和下载目录；已经落盘可直接恢复。只有明确停在点击前的检查失败，才可在用户回复后重新尝试原生操作。无法识别的窗口仍由用户处理。
 
@@ -53,7 +53,7 @@ python3 scripts/academic.py browser resolve --pending-id <当前ID> --decision r
 python3 -m pip install -r requirements-pdf.txt
 ```
 
-`pypdf` 是可选的。已安装时检查 PDF 可解析性、页数、首页题名和第一作者；缺少它、解析或文字提取失败时允许归档，但报告“正文未自动核验”。明确题名作者不符则暂停，请核对当前文件或提供正确正文。页数不能单独证明正文身份。
+`pypdf` 是可选的。已安装时检查 PDF 可解析性、页数、首页题名和第一作者；缺少它或文字提取失败时允许归档，但报告“正文未自动核验”。已安装却无法解析、或者文件结构不完整时不能计为成功，保留诊断并暂停；旧缓存同样重验。明确题名作者不符则暂停，请核对当前文件或提供正确正文。页数不能单独证明正文身份。
 
 报告至少区分：选定总数、已归档、已完成正文自动核验、仅题录、排除、未知、待人工和失败。说明本轮 pypdf 的使用情况及影响；未核验时必须提醒可能未发现错篇、正文与附录混淆或解析问题。安装后重跑原命令会核验已归档文件，不再下载。批量检查点可直接交给 `bibliography pubmed` 生成含最终状态的目录。
 

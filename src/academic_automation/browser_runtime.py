@@ -46,6 +46,7 @@ def navigate(url):
 
 
 def atomic_json(path, obj):
+    from .redaction import redact
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     import tempfile
@@ -54,7 +55,7 @@ def atomic_json(path, obj):
     tmp = Path(temporary)
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as stream:
-            json.dump(obj, stream, ensure_ascii=False, indent=2)
+            json.dump(redact(obj), stream, ensure_ascii=False, indent=2)
             stream.write('\n')
         tmp.replace(path)
     finally:
@@ -77,6 +78,9 @@ def wait_ready(mode, timeout=20, url='', previous='', minimum=1.0):
         state = json.loads(read_js(js))
         if state.get('captcha') or state.get('login'):
             raise BrowserError('LOGIN_OR_CAPTCHA: complete verification in Chrome', 2, {'url': state.get('url', '')})
+        if state.get('consent'):
+            raise BrowserError('CONSENT_REQUIRED: dismiss the Cookie/consent dialog using your chosen settings', 2,
+                               {'kind': 'needs_consent', 'url': state.get('url', '')})
         if state.get('not_found'):
             raise BrowserError('PAGE_NOT_FOUND: refresh the source link for the same article', 3, {'url': state.get('url', '')})
         if state.get('fee'):

@@ -61,7 +61,7 @@ Harness 可将 `wait_for_user=true` 直接映射为暂停调度，只允许只�
 
 ## PubMed 开发构建验收
 
-macOS 查看器另需验收：默认 Apple Events 后端在具备辅助功能权限时自动点击下载并保存到中文及空格目录；无权限、错误标签和未知弹窗保持暂停。保存后重跑不再点击，记录归档数、正文核验数和 SHA-256。真实样本及支持边界见 [原生保存验收](macos-pdf-save-acceptance.md)。这不替代 Windows 扩展及人工保存恢复测试。
+macOS 查看器另需验收：默认 Apple Events 及 macOS 扩展后端在具备辅助功能权限时自动点击下载并保存到中文及空格目录；无权限、错误标签和未知弹窗保持暂停。保存后重跑不再点击，记录归档数、正文核验数和 SHA-256。真实样本及支持边界见 [原生保存验收](macos-pdf-save-acceptance.md)。这不替代 Windows 扩展及人工保存恢复测试。
 
 版本 `2.0.0-beta.3.pubmed.1` 为本地测试包，未发布新 Pre-Release。使用同一份已解压 Skill，先记录 `doctor --capability pubmed-data` 的版本、指纹、平台、Python、pypdf 和浏览器能力。
 
@@ -70,7 +70,7 @@ macOS 查看器另需验收：默认 Apple Events 后端在具备辅助功能权
 3. 创建带 `access_policy` 和三篇 `rows` 的 JSON，运行 `batch 清单.json --source pubmed --dest "文献 测试"`。核对初始清单与最终每篇状态；重排后再运行，已归档文件路径、SHA-256 和数量不变。
 4. PMC 直接下载应无需浏览器。Oxford 在 macOS 默认 Apple Events 与可选扩展分别测试；Windows 使用 Playwright 官方扩展。记录实际是否自动落盘、是否进入 PDF 查看器或保存窗口，不能将隔离 Chrome 传输测试当作真实扩展附着结果。
 5. 验证出现时确认 Agent 发问并等真实回复，保持当前篇；不切换来源或下一篇。回复后保持同篇页面。手动保存后先核验已有文件，不发第二次下载；结束断开连接，用户浏览器应继续保留。
-6. 两平台测试有/无 pypdf、解析/文字提取失败、明确错篇和附录，核对“已归档”与“正文自动核验”数量独立。没有 pypdf 也应完成归档并在最终答复中解释用途、安装方法和本轮风险。错篇不得计入成功正文。
+6. 两平台测试有/无 pypdf、解析/文字提取失败、明确错篇和附录，核对“已归档”与“正文自动核验”数量独立。没有 pypdf 也应完成归档并在最终答复中解释用途、安装方法和本轮风险。错篇、传输不完整和已安装解析器发现的解析失败不得计入成功正文；这些旧缓存也不能跳过。
 7. Windows 原生环境检查中文/空格/长路径、同名、文件占用、跨盘复制与系统保存；原生 `academic.cmd` 启动入口需要在 Windows 验证。macOS 解压 Windows 包并运行 Python 不能替代这些结果。
 8. Codex、Cursor、OpenCode、Qoder 或其他 Harness 分别使用下列行为样例。记录实际模型、Harness、Skill 指纹、用户消息、工具参数和最终报告；不能只凭脚本文本或单元测试宣称模型行为通过。
 

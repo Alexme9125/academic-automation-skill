@@ -19,6 +19,9 @@
     || /institutional login required/i.test(body.slice(0, 2500))
     || (Array.from(document.querySelectorAll('input[type="password"]')).some(visible)
       && /登录|统一认证|sign[ -]?in|log[ -]?in|authentication/i.test(title + body.slice(0, 2500)));
+  var consent = Array.from(document.querySelectorAll('#onetrust-banner-sdk, #onetrust-pc-sdk, .onetrust-pc-dark-filter, #CybotCookiebotDialog')).some(function(e){
+    return visible(e) && getComputedStyle(e).display !== 'none' && getComputedStyle(e).opacity !== '0';
+  });
   var loading = Array.from(document.querySelectorAll('[aria-busy="true"], .loading, .loading-mask, mat-spinner')).some(visible);
   var empty = /暂无数据|没有找到|did not match any articles|No results found/i.test(body);
   var notFound = /(?:^|\s)404(?:\s|$)|page not found|页面不存在|页面未找到/i.test(title)
@@ -58,6 +61,7 @@
   var hash = 2166136261;
   for (var i=0;i<content.length;i++) hash = Math.imul(hash ^ content.charCodeAt(i), 16777619);
   return JSON.stringify({url:url, ready:ready && !loading && document.readyState !== 'loading',
-    empty:empty, captcha:captcha, login:login, not_found:notFound, fee:/bar\.cnki\.net\/bar\/fee/.test(url),
+    empty:empty, captcha:captcha, login:login, consent:consent, visibility:document.visibilityState,
+    type:document.contentType, not_found:notFound, fee:/bar\.cnki\.net\/bar\/fee/.test(url),
     signature:url + '|' + (hash >>> 0)});
 })()

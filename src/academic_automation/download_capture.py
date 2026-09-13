@@ -24,6 +24,14 @@ def capture(checkpoint, state, selector, author=''):
         if exc.code not in (2, 70): raise
         event = state['download_event']
     br.atomic_json(checkpoint, state)
+    if event.get('status', '').startswith('needs_'):
+        kind = event['status']
+        message = {'needs_consent': 'Choose and dismiss the Cookie/consent dialog; the download button has not been clicked',
+                   'needs_control': 'The download control is not actionable; inspect its visibility or overlay. It has not been clicked',
+                   'needs_foreground': 'Make the bound task tab visible; the download button has not been clicked',
+                   'needs_verification': 'Complete login or verification in the current tab; the download button has not been clicked'}
+        raise BrowserError('NEEDS_USER: ' + message.get(kind, 'Inspect the current page'), 2,
+                           {'kind': kind, 'checkpoint': str(checkpoint), 'diagnostics': event})
     if not event.get('saved'): return None
     original = dw.safe_name(event.get('suggested_filename') or 'article.pdf')
     if author and not re.search('_' + re.escape(author) + r'(?:\s*\(\d+\))?\.(?:pdf|caj)$', original, re.I):

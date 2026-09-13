@@ -3,6 +3,8 @@ import hashlib
 import json
 import re
 import time
+import uuid
+from http.client import IncompleteRead
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
@@ -36,21 +38,57 @@ def direct_pdf(url, target):
     # never pass through this function.
     if not url.startswith(('https://', 'http://')):
         return False
-    try:
-        with urlopen(Request(url, headers={'User-Agent': UA}), timeout=60) as response:
-            head = response.read(8)
-            if not head.startswith(b'%PDF-'):
-                return False
-            with Path(target).open('wb') as output:
-                output.write(head)
-                while True:
-                    block = response.read(1024 * 1024)
-                    if not block:
-                        break
-                    output.write(block)
-        return dw.valid_file(target)
-    except (HTTPError, URLError, TimeoutError):
-        return False
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    journal = target.with_name(target.name + '.http.json')
+    attempts = br.read_json(journal, [])
+    for attempt in range(2):
+        part = target.with_name(target.name + '.' + uuid.uuid4().hex + '.part')
+        result = {'url': url, 'part': str(part), 'received_bytes': 0}
+        retryable = False
+        try:
+            with urlopen(Request(url, headers={'User-Agent': UA, 'Accept-Encoding': 'identity'}), timeout=60) as response:
+                headers = getattr(response, 'headers', {})
+                result['http_status'] = getattr(response, 'status', 200)
+                length = headers.get('Content-Length')
+                result['declared_bytes'] = int(length) if length and length.isdigit() else None
+                if (result['http_status'] != 200 or headers.get('Content-Range')
+                        or headers.get('Content-Encoding', 'identity').lower() != 'identity'):
+                    result['error'] = 'unexpected_response'
+                else:
+                    with part.open('xb') as output:
+                        while True:
+                            block = response.read(1024 * 1024)
+                            if not block: break
+                            output.write(block)
+                            result['received_bytes'] += len(block)
+                    if result['declared_bytes'] is not None and result['received_bytes'] != result['declared_bytes']:
+                        result['error'] = 'incomplete_transfer'; retryable = True
+                    elif not dw.pdf_format(part):
+                        result['error'] = 'invalid_pdf_format'
+                    else:
+                        from .pdf_verify import verify
+                        try:
+                            result['verification'] = verify(part, {})
+                        except BrowserError as exc:
+                            result['error'] = 'invalid_pdf_content'
+                            result['verification'] = exc.details.get('verification', {})
+                        if not result.get('error'):
+                            # Preserve any pre-existing staging evidence instead of overwriting it.
+                            if target.exists():
+                                target.rename(target.with_name(target.name + '.' + uuid.uuid4().hex + '.previous'))
+                            part.replace(target)
+                            result['status'] = 'complete'
+        except HTTPError as exc:
+            result.update(error='http_error', http_status=exc.code)
+        except (URLError, TimeoutError, ConnectionError, IncompleteRead) as exc:
+            result['error'] = 'incomplete_transfer' if isinstance(exc, IncompleteRead) else 'network_error'
+            retryable = True
+        attempts.append(result); br.atomic_json(journal, attempts)
+        if result.get('status') == 'complete': return True
+        if not retryable: break
+        if attempt == 0: time.sleep(.5)
+    return False
 
 
 def pdf_candidates(links):
@@ -108,8 +146,12 @@ def _download(doi, dest, name='', retry=False):
     done = resume_download(checkpoint, dest, retry=retry, name=name)
     if done:
         return done
-    final = resolve_doi(doi)
     state = br.read_json(checkpoint, {})
+    if state.get('publisher_stage') in ('pdf_requested', 'pdf_open', 'saving'):
+        # A completed DOI redirect is part of the saved task. Do not repeat it
+        # while the user is resuming its already-open PDF.
+        return resume_publisher_pdf(dest, name, checkpoint, state)
+    final = resolve_doi(doi)
     state.update(doi=doi, source_url=final, name=name, access_policy=access.current())
     return article(final, doi, dest, name, checkpoint, state)
 
@@ -133,6 +175,8 @@ def article(final, doi, dest, name, checkpoint, state, free=False):
 def _article(final, doi, dest, name, checkpoint, state, free, links):
     from .browser import backend_name
     from .download_capture import capture, publisher_control
+    if state.get('publisher_stage') in ('pdf_requested', 'pdf_open', 'saving'):
+        return resume_publisher_pdf(dest, name, checkpoint, state)
     host = (urlparse(final).hostname or '').lower()
     direct = []
     if host_is(host, 'nature.com'):
@@ -143,9 +187,10 @@ def _article(final, doi, dest, name, checkpoint, state, free, links):
                    'https://www.frontiersin.org/journals/education/articles/' + doi + '/pdf']
     # Persistent staging lets an identity mismatch or interrupted archive recover.
     path = Path(checkpoint).parent / (Path(checkpoint).stem + '.pdf')
+    state['http_diagnostics'] = str(path) + '.http.json'
     for url in direct:
         if direct_pdf(url, path):
-            state['source_url'] = url
+            state.update(source_url=url, download_route='direct_http')
             return finish_download(path, dest, checkpoint, state, name)
     current = json.loads(br.read_js('''JSON.stringify({url:location.href,title:document.title,
       doi:(document.querySelector('meta[name="citation_doi"]')||{}).content||''})'''))
@@ -155,6 +200,16 @@ def _article(final, doi, dest, name, checkpoint, state, free, links):
                     or bool(expected_title and expected_title in norm(current.get('title', ''))))
     if not same_article: br.navigate(final)
     br.wait_ready('publisher', 25)
+    if not state.get('record'):
+        metadata = json.loads(br.read_js('''JSON.stringify({
+          title:(document.querySelector('meta[name="citation_title"]')||{}).content||'',
+          authors:Array.from(document.querySelectorAll('meta[name="citation_author"]')).map(e=>e.content),
+          doi:(document.querySelector('meta[name="citation_doi"]')||{}).content||''})'''))
+        if metadata.get('doi') and metadata['doi'].lower() != doi.lower():
+            raise BrowserError('PUBLISHER_IDENTITY_MISMATCH: the current article metadata has a different DOI', 2,
+                               {'checkpoint': str(checkpoint)})
+        if metadata.get('title') and metadata.get('authors'):
+            state['record'] = metadata
     if not links:
         if host_is(host, 'sagepub.com'):
             links = ['https://journals.sagepub.com/doi/pdf/' + doi + '?download=true']
@@ -166,7 +221,7 @@ def _article(final, doi, dest, name, checkpoint, state, free, links):
     state['pdf_links'] = links; br.atomic_json(checkpoint, state)
     for url in links[:3]:
         if direct_pdf(url, path):
-            state['source_url'] = url
+            state.update(source_url=url, download_route='direct_http')
             return finish_download(path, dest, checkpoint, state, name)
     if not links:
         if access.public_only():
@@ -185,11 +240,19 @@ def _article(final, doi, dest, name, checkpoint, state, free, links):
     if not folder.is_dir(): raise BrowserError("Set --downloads-dir to Chrome's actual download directory", 64)
     # Re-snapshot after any user-authorized retry; file recovery already ran first.
     state.update(status='waiting', downloads=str(folder.resolve()), before=dw.snapshot(folder),
-                 since=time.time(), url=links[0], source_url=links[0], name=name)
+                 since=time.time(), url=links[0], source_url=links[0], name=name, publisher_stage='pdf_requested')
     br.atomic_json(checkpoint, state)
     if backend_name() == 'extension':
-        candidate = capture(checkpoint, state, publisher_control(links[0]))
-        if candidate: return finish_download(candidate, dest, checkpoint, state, name)
+        try:
+            candidate = capture(checkpoint, state, publisher_control(links[0]))
+        except BrowserError:
+            if state.get('download_event', {}).get('click_attempted') is False:
+                state['publisher_stage'] = 'article'
+                br.atomic_json(checkpoint, state)
+            raise
+        if candidate:
+            state['download_route'] = 'extension_event'
+            return finish_download(candidate, dest, checkpoint, state, name)
     else:
         script = (br.DIR / 'pub/jump.js').read_text(encoding='utf-8')
         script = re.sub(r'__URL__|__NAME__', lambda m: json.dumps(links[0] if m[0] == '__URL__' else name), script)
@@ -198,10 +261,39 @@ def _article(final, doi, dest, name, checkpoint, state, free, links):
         path = dw.wait_download(folder, state['before'], since=state['since'], timeout=12, page='publisher')
     except BrowserError as exc:
         if exc.code not in (2, 4, 70): raise
-        if exc.code == 4 and backend_name() == 'apple-events':
-            from .native_save import save_pdf
-            path = save_pdf(checkpoint, state, links[0])
-            if path: return finish_download(path, dest, checkpoint, state, name)
+        if exc.code == 4:
+            return resume_publisher_pdf(dest, name, checkpoint, state)
         raise BrowserError('NEEDS_USER: handle verification or save the displayed PDF, then resume this article', 2,
                            {'checkpoint': str(checkpoint), 'downloads': str(folder), 'url': links[0], 'cause': str(exc)}) from exc
+    state['download_route'] = backend_name() + '_downloads_folder'
     return finish_download(path, dest, checkpoint, state, name)
+
+
+def resume_publisher_pdf(dest, name, checkpoint, state):
+    """Resume the requested PDF stage without reopening the article or clicking again."""
+    from .native_save import same_pdf_target, save_pdf
+    from .browser import backend_name
+    expected = state.get('url') or state.get('source_url')
+    transport = br.get_browser()
+    if backend_name() == 'extension':
+        transport.select_pdf_popup(expected)
+    page = json.loads(br.read_js('JSON.stringify({url:location.href,type:document.contentType})'))
+    if page.get('type') != 'application/pdf':
+        # Diagnose verification/consent on the PDF endpoint without navigating away.
+        try:
+            br.wait_ready('publisher', 5)
+        except BrowserError as exc:
+            if exc.code != 70: raise
+        raise BrowserError('NEEDS_USER: the PDF request is still unresolved; keep this article open and save its PDF. No download click was repeated', 2,
+                           {'checkpoint': str(checkpoint), 'kind': 'pdf_requested', 'url': expected,
+                            'save_folder': state.get('downloads', '')})
+    if not expected or not same_pdf_target(expected, page.get('url', '')):
+        raise BrowserError('NEEDS_USER: the open PDF cannot be matched to this article; no navigation or saving was performed', 2,
+                           {'checkpoint': str(checkpoint), 'kind': 'pdf_identity'})
+    state['publisher_stage'] = 'pdf_open'; br.atomic_json(checkpoint, state)
+    path = save_pdf(checkpoint, state, expected)
+    if path:
+        state['download_route'] = backend_name() + '_native_save'
+        return finish_download(path, dest, checkpoint, state, name)
+    raise BrowserError('NEEDS_USER: save the open PDF using its viewer download button, then resume this article', 2,
+                       {'checkpoint': str(checkpoint), 'kind': 'pdf_open', 'save_folder': state.get('downloads', '')})

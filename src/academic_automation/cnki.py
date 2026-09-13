@@ -110,15 +110,7 @@ def finish_download(path, dest, checkpoint, state, name=''):
     state.update(candidate=str(Path(path).resolve()), status='archiving',
                  candidate_sha256=hashlib.sha256(Path(path).read_bytes()).hexdigest())
     br.atomic_json(checkpoint, state)
-    if state.get('source') == 'pubmed':
-        from .pdf_verify import verify
-        try:
-            state['verification'] = verify(path, state['record'])
-        except BrowserError as exc:
-            state['verification'] = exc.details.get('verification', {})
-            br.atomic_json(checkpoint, state)
-            exc.details['checkpoint'] = str(checkpoint)
-            raise
+    verify_download(path, checkpoint, state)
     def journal(target):
         state['archive_target'] = str(target)
         br.atomic_json(checkpoint, state)
@@ -128,44 +120,73 @@ def finish_download(path, dest, checkpoint, state, name=''):
     return download_result(state, checkpoint)
 
 
+def verify_download(path, checkpoint, state):
+    from .pdf_verify import verify
+    try:
+        if not dw.valid_file(path):
+            raise BrowserError('INVALID_DOWNLOAD: file is incomplete or has an invalid format', 2,
+                               {'verification': {'status': 'invalid', 'reason': 'incomplete_or_invalid_format'}})
+        if Path(path).suffix.lower() == '.pdf':
+            record = state.get('record') or {'title': state.get('title', ''), 'first_author': state.get('author', '')}
+            state['verification'] = verify(path, record)
+        else:
+            state['verification'] = {'status': 'unverified', 'content_verified': False, 'reason': 'caj_format'}
+    except BrowserError as exc:
+        state['verification'] = exc.details.get('verification', {})
+        exc.details.update(checkpoint=str(checkpoint), path=str(path))
+        if state['verification'].get('status') == 'invalid': exc.details['kind'] = 'invalid_file'
+        br.atomic_json(checkpoint, state)
+        raise
+
+
+def reject_invalid_for_retry(path, checkpoint, state, retry):
+    try:
+        verify_download(path, checkpoint, state)
+    except BrowserError as exc:
+        if not retry or exc.details.get('kind') != 'invalid_file': raise
+        # The CLI only supplies retry after an actual reply. Keep the old file,
+        # and retain its diagnosis, before allowing a fresh bounded request.
+        state.setdefault('rejected_files', []).append({'path': str(path), 'verification': state['verification']})
+        for key in ('file', 'sha256', 'archive_target', 'candidate', 'candidate_sha256', 'transfer_file',
+                    'download_event', 'native_save', 'verification', 'publisher_stage'):
+            state.pop(key, None)
+        state['status'] = 'retry_ready'
+        br.atomic_json(checkpoint, state)
+        return True
+    return False
+
+
 def download_result(state, checkpoint, cached=False):
     return {'path': state['file']['path'], 'checkpoint': str(checkpoint), 'status': 'complete', 'cached': cached,
-            **{k: state[k] for k in ('file', 'sha256', 'source_url', 'provenance', 'text_version', 'verification', 'access_policy', 'pmid', 'record') if k in state}}
+            **{k: state[k] for k in ('file', 'sha256', 'source_url', 'provenance', 'text_version', 'verification', 'access_policy', 'pmid', 'record', 'download_route', 'rejected_files', 'http_diagnostics') if k in state}}
 
 
 def resume_download(checkpoint, dest, author='', retry=False, name=''):
-    from .cnki_batch import verified, file_record
+    from .cnki_batch import file_record
     import hashlib
     state = br.read_json(checkpoint, {})
-    if state.get('source') == 'pubmed' and state.get('status') == 'complete' and not verified(state.get('file')):
-        saved = state.get('file', {}).get('path')
-        if saved and Path(saved).exists():
+    saved = state.get('file', {}).get('path')
+    if state.get('status') == 'complete' and saved and Path(saved).exists():
+        stat = Path(saved).stat()
+        if any(state['file'].get(k) != v for k, v in {'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns}.items()):
             raise BrowserError('ARCHIVED_FILE_CHANGED: inspect the existing file before requesting another copy', 2,
                                {'checkpoint': str(checkpoint), 'path': saved})
-    if state.get('status') == 'complete' and verified(state.get('file')):
         if state.get('sha256') and hashlib.sha256(Path(state['file']['path']).read_bytes()).hexdigest() != state['sha256']:
             raise BrowserError('ARCHIVED_FILE_CHANGED: inspect the existing file before retrying', 2, {'checkpoint': str(checkpoint)})
-        if state.get('source') == 'pubmed':
-            from .pdf_verify import verify
-            try:
-                state['verification'] = verify(state['file']['path'], state['record'])
-            except BrowserError as exc:
-                exc.details['checkpoint'] = str(checkpoint)
-                raise
-            br.atomic_json(checkpoint, state)
+        if reject_invalid_for_retry(saved, checkpoint, state, retry): return None
+        br.atomic_json(checkpoint, state)
         return download_result(state, checkpoint, True)
     if state.get('status') in ('waiting', 'archiving'):
         target = state.get('archive_target')
         if target and dw.valid_file(target) and hashlib.sha256(Path(target).read_bytes()).hexdigest() == state.get('candidate_sha256'):
-            if state.get('source') == 'pubmed':
-                from .pdf_verify import verify
-                state['verification'] = verify(target, state['record'])
+            if reject_invalid_for_retry(target, checkpoint, state, retry): return None
             state.update(status='complete', file=file_record(target))
             state['sha256'] = state['candidate_sha256']
             br.atomic_json(checkpoint, state)
             return {**download_result(state, checkpoint, True), 'path': target}
         candidate = state.get('candidate')
-        if candidate and dw.valid_file(candidate):
+        if candidate and Path(candidate).exists():
+            if reject_invalid_for_retry(candidate, checkpoint, state, retry): return None
             return finish_download(candidate, dest, checkpoint, state, name)
         if state.get('native_save'):
             from .native_save import recovered_file
@@ -177,6 +198,7 @@ def resume_download(checkpoint, dest, author='', retry=False, name=''):
             try:
                 candidate = dw.wait_download(state['downloads'], state['before'], author,
                                              state['since'], timeout=2.5, interval=.5)
+                state.setdefault('download_route', backend_name() + '_downloads_folder')
                 return finish_download(candidate, dest, checkpoint, state, name)
             except BrowserError as exc:
                 if exc.code != 4:
@@ -193,6 +215,9 @@ def resume_download(checkpoint, dest, author='', retry=False, name=''):
         if state.get('transfer_file') and Path(state['transfer_file']).exists():
             raise BrowserError('NEEDS_USER: an unconfirmed browser transfer exists; inspect it or save the paper manually before retrying', 2,
                                {'checkpoint': str(checkpoint), 'transfer_file': state['transfer_file']})
+        if state.get('publisher_url') and state.get('url') and 'publisher_stage' not in state:
+            state['publisher_stage'] = 'pdf_requested'
+            br.atomic_json(checkpoint, state)
     return None
 
 
@@ -234,18 +259,21 @@ def _download(title, author, dest, expert='', affiliation='', pages=3, index_pat
     if completed:
         return completed
     found = existing_exact(title, author, dest)
-    if found and not br.read_json(checkpoint, {}).get('status') == 'complete':
-        return {'path': str(found.resolve()), 'status': 'complete', 'cached': True}
+    previous = br.read_json(checkpoint, {})
+    rejected = {str(Path(item['path']).resolve()) for item in previous.get('rejected_files', [])}
+    if found and str(Path(found).resolve()) not in rejected and previous.get('status') != 'complete':
+        return {**finish_download(found, dest, checkpoint, {**previous, 'title': title, 'author': author}), 'cached': True}
     folder = downloads_dir()
     if not folder.is_dir():
         raise BrowserError('Set --downloads-dir to Chrome\'s actual download directory', 64)
     locate(title, author, expert, affiliation, pages, index_path)
-    state = {'status': 'waiting', 'title': title, 'author': author,
+    state = {**br.read_json(checkpoint, {}), 'status': 'waiting', 'title': title, 'author': author,
              'downloads': str(folder.resolve()), 'before': dw.snapshot(folder), 'since': time.time()}
     br.atomic_json(checkpoint, state)
     if backend_name() == 'extension':
         candidate = extension_download(checkpoint, state, author)
         if candidate:
+            state['download_route'] = 'extension_event'
             return finish_download(candidate, dest, checkpoint, state)
         # No event may mean Chrome handled the download itself. Check the original
         # snapshot first; a missing event never authorizes a second click.
@@ -257,6 +285,7 @@ def _download(title, author, dest, expert='', affiliation='', pages=3, index_pat
             raise BrowserError('NEEDS_USER: inspect the current page or save the PDF; do not repeat the click automatically', 2,
                                {'checkpoint': str(checkpoint), 'downloads': str(folder),
                                 'diagnostics': state.get('download_event'), 'cause': str(exc)}) from exc
+        state['download_route'] = 'extension_downloads_folder'
         return finish_download(candidate, dest, checkpoint, state)
     for attempt in range(3):
         result = br.run_file('cnki_click.js')  # location.href preserves CNKI referrer.

@@ -12,11 +12,14 @@ PubMed、知网外文、WoS、Scholar 检索及外文下载在子命令后使用
 python3 scripts/academic.py --json doctor
 python3 scripts/academic.py --json doctor --capability pubmed-data
 python3 scripts/academic.py --backend extension browser connect
+python3 scripts/academic.py --backend extension browser connect --url "https://pubmed.ncbi.nlm.nih.gov/"
 python3 scripts/academic.py --backend extension --json doctor --browser
 python3 scripts/academic.py --backend extension browser disconnect
 ```
 
 `doctor` 只检查本机运行环境，不能证明扩展、登录或机构访问可用。扩展 `browser connect` 在附着后实际读取标签标题和 URL，检查通过才保存连接状态；`doctor --browser` 可再次验证。首次扩展连接会出现官方扩展授权和标签选择界面；使用自己的账户完成。不同 Skill 副本共享本机浏览器任务锁，不会并行抢占。断开连接保留用户的 Chrome。
+
+连接页和扩展状态页不算普通网页。默认验证用户已选择的标签；若需要为本任务新建标签，可明确传 `--url`，不自动挑选其他现有标签。连接检查同时验证网页脚本能读取同一地址。`doctor --browser` 只证明页面可读，其 `download_verified=false` 不代表已实测下载失败，也不表示下载已通过。扩展连接令牌通过进程环境提供，不能放入项目配置或交付记录。
 
 `doctor --capability pubmed-data` 不因缺 Chrome、Node.js 或扩展而失败，分别列出接口运行条件、浏览器能力及可选 `pypdf`。纯 PubMed 接口、题录和 PMC 公开文件不需连接浏览器。该检查不主动测试网络。
 
@@ -59,6 +62,8 @@ python3 scripts/academic.py batch selected.json --source pubmed --dest "文献�
 PubMed JSON 清单使用 `{"access_policy":"free-only","rows":[{"pmid":"37935836"}]}`，`rows` 明确指定篇目，批量必须给 `--dest`。PMID 单篇也接受 PubMed URL。详细分页、原始日期、PMC 版本及正文核验见 [PubMed](pubmed.md)。`free-only` 在 PubMed 使用官方免费全文筛选，在 WoS 使用 OA 筛选；其余来源提取后分类，免费未知记录放入 `unclassified_rows`，不能据此断言收费。
 
 单篇进度保存在目标目录的 `.academic-downloads/`。验证码、登录或 PDF 保存窗口需人工处理；处理后重跑原命令，先检查本次快照之后的文件，再决定是否继续。没有新文件会保持暂停；明确需要重新请求时才加 `--retry`。批量遇人工步骤立即退出，不等待无交互终端输入，也不继续打开下一篇。
+
+首次归档、人工归档和续跑均检查 PDF 结构；安装 `pypdf` 时同时检查可解析性，已取得题名作者时再核对身份。损坏文件不会缓存为完成，返回 `kind=invalid_file` 并保留原件；用户实际确认重取后，用下述交接恢复，同名原文件不会覆盖。结果的 `download_route` 区分扩展事件、下载目录恢复、直接 HTTP 和原生保存，`verification.content_verified` 单独表示正文身份核验。
 
 ## 人工交接与调度约束
 

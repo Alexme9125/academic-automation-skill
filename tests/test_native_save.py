@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from pdf_fixture import PDF, pdf_bytes
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 from academic_automation import access, browser, browser_runtime as br, cnki, native_save, publisher
@@ -57,11 +59,9 @@ assert.throws(()=>m.saveControls(rows.filter(r=>r.name!=='Save As:')));
 assert.throws(()=>m.saveControls(rows.map(r=>r.name==='Save'?{...r,name:'Replace'}:r)));
 assert.throws(()=>m.saveControls([...rows,rows[0]]));''')
 
-    def test_windows_or_extension_never_invokes_native_runtime(self):
+    def test_windows_never_invokes_native_runtime(self):
         with patch.object(browser, 'run_process') as run:
             with patch.object(native_save.platform, 'system', return_value='Windows'):
-                self.assertIsNone(native_save.save_pdf(self.cp, self.state, 'https://example.org/a.pdf'))
-            with patch.object(native_save.platform, 'system', return_value='Darwin'), patch.object(browser, 'backend_name', return_value='extension'):
                 self.assertIsNone(native_save.save_pdf(self.cp, self.state, 'https://example.org/a.pdf'))
             run.assert_not_called()
         self.assertFalse(self.cp.exists())
@@ -81,7 +81,7 @@ assert.throws(()=>m.saveControls([...rows,rows[0]]));''')
     def test_success_requires_real_stable_file_and_retains_event_evidence(self):
         def save(args, **kwargs):
             request = br.read_json(args[-1])
-            Path(request['folder'], request['filename']).write_bytes(b'%PDF-1.4\nbody\n%%EOF')
+            Path(request['folder'], request['filename']).write_bytes(PDF)
             return json.dumps({'status': 'dialog_closed', 'events': ['download_clicked', 'save_clicked', 'dialog_closed']})
         with patch.object(native_save.platform, 'system', return_value='Darwin'), patch.object(browser, 'run_process', side_effect=save), patch.object(br, 'read_js', return_value='{"url":"https://watermark02.silverchair.com/ddz204.pdf?token=private","type":"application/pdf"}'):
             path = native_save.save_pdf(self.cp, self.state, 'https://academic.oup.com/hmg/article-pdf/28/R2/R170/31081074/ddz204.pdf')
@@ -118,11 +118,11 @@ assert.throws(()=>m.saveControls([...rows,rows[0]]));''')
 
     def test_native_file_is_recovered_before_request_and_archived_without_overwrite(self):
         staging = self.root / 'staging'; staging.mkdir()
-        candidate = staging / 'received.pdf'; candidate.write_bytes(b'%PDF-1.4\nbody\n%%EOF')
+        candidate = staging / 'received.pdf'; candidate.write_bytes(PDF)
         self.state['native_save'] = {'folder': str(staging), 'filename': 'received.pdf', 'since': 0, 'status': 'attempted'}
         br.atomic_json(self.cp, self.state)
         dest = self.root / 'papers'; dest.mkdir()
-        (dest / 'article.pdf').write_bytes(b'%PDF-1.4\noriginal\n%%EOF')
+        (dest / 'article.pdf').write_bytes(pdf_bytes('original'))
         with patch.object(browser, 'run_process') as run:
             result = cnki.resume_download(self.cp, dest, retry=True)
             cached = cnki.resume_download(self.cp, dest)
@@ -170,8 +170,9 @@ const source=fs.readFileSync(require.resolve(''' + json.dumps(str(ROOT / 'script
 for(const changed of ['window','tab','url','ax','dialog','html']) {
  const request={window:10,tab:20,url:'https://x/a.pdf'};
  const tab={id:()=>changed==='tab'?21:20,url:()=>changed==='url'?'https://x/b.pdf':request.url};
- const win={id:()=>changed==='window'?11:10,activeTab:()=>tab,name:()=> 'a.pdf'};
- const ax={name:()=>changed==='ax'?'Other window':'a.pdf - Google Chrome',sheets:()=>changed==='dialog'?[{}]:[]};
+ const win={id:()=>changed==='window'?11:10,activeTab:()=>tab,name:()=> 'a.pdf',bounds:()=>({x:1,y:33,width:1728,height:997})};
+ const ax={name:()=>changed==='ax'?'Other window':'a.pdf - Google Chrome',sheets:()=>changed==='dialog'?[{}]:[],
+   role:()=> 'AXWindow',subrole:()=> 'AXStandardWindow',position:()=>[1,33],size:()=>[1728,997]};
  const process={windows:()=>[ax]},chrome={running:()=>true,windows:()=>[win],execute:()=>changed==='html'?'text/html':'application/pdf'};
  const ctx={ObjC:{import(){},unwrap:x=>x},$:{NSString:{stringWithContentsOfFileEncodingError:()=>JSON.stringify(request)}},
  Application:name=>name==='Google Chrome'?chrome:{processes:{byName:()=>process}}};
@@ -182,7 +183,7 @@ for(const changed of ['window','tab','url','ax','dialog','html']) {
 
     def test_native_recovery_keeps_pubmed_identity_check(self):
         from academic_automation import pdf_verify
-        candidate = self.root / 'received.pdf'; candidate.write_bytes(b'%PDF-1.4\nwrong paper')
+        candidate = self.root / 'received.pdf'; candidate.write_bytes(PDF)
         self.state.update(source='pubmed', record={'title': 'Expected paper'}, native_save={'folder': str(self.root), 'filename': candidate.name, 'since': 0})
         br.atomic_json(self.cp, self.state)
         with patch.object(pdf_verify, 'verify', side_effect=BrowserError('PDF_IDENTITY_MISMATCH', 2)):
@@ -191,10 +192,10 @@ for(const changed of ['window','tab','url','ax','dialog','html']) {
 
     def test_publisher_only_attempts_native_after_mac_no_file_not_captcha(self):
         url = 'https://example.org/a.pdf'
-        saved = self.root / 'received.pdf'; saved.write_bytes(b'%PDF-1.4\nbody')
-        for backend, code, expected in [('apple-events', 4, True), ('apple-events', 2, False), ('apple-events', 70, False), ('extension', 4, False)]:
-            state = {'status': 'waiting'}
-            with access.scope('all'), patch.object(browser, 'backend_name', return_value=backend), patch.object(br, 'read_js', return_value='{"url":"https://example.org/article"}'), patch.object(br, 'wait_ready'), patch.object(br, 'run_js'), patch.object(publisher, 'direct_pdf', return_value=False), patch('academic_automation.download_capture.capture', return_value=None), patch('academic_automation.download_capture.publisher_control', return_value='#pdf'), patch.object(native_save.dw, 'wait_download', side_effect=BrowserError('fixture', code)), patch.object(native_save, 'save_pdf', return_value=saved) as native, patch.object(publisher, 'finish_download', return_value={'status': 'complete'}):
+        saved = self.root / 'received.pdf'; saved.write_bytes(PDF)
+        for backend, code, expected in [('apple-events', 4, True), ('apple-events', 2, False), ('apple-events', 70, False), ('extension', 4, True)]:
+            state = {'status': 'waiting', 'record': {'title': 'fixture'}}
+            with access.scope('all'), patch.object(browser, 'backend_name', return_value=backend), patch.object(br, 'read_js', side_effect=['{"url":"https://example.org/article"}', '{"url":"https://example.org/a.pdf","type":"application/pdf"}']), patch.object(browser.ExtensionBrowser, 'select_pdf_popup'), patch.object(br, 'wait_ready'), patch.object(br, 'run_js'), patch.object(publisher, 'direct_pdf', return_value=False), patch('academic_automation.download_capture.capture', return_value=None), patch('academic_automation.download_capture.publisher_control', return_value='#pdf'), patch.object(native_save.dw, 'wait_download', side_effect=BrowserError('fixture', code)), patch.object(native_save, 'save_pdf', return_value=saved) as native, patch.object(publisher, 'finish_download', return_value={'status': 'complete'}):
                 if expected:
                     self.assertEqual(publisher._article('https://example.org/article', '', self.root, '', self.cp, state, False, [url])['status'], 'complete')
                 else:

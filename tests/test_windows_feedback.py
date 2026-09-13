@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from pdf_fixture import PDF
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src'))
 from academic_automation import browser, browser_runtime as br, cli, cnki, cnki_batch, interaction, publisher, download_watch as dw
@@ -100,7 +102,7 @@ process.stdout.write(JSON.stringify({result,error,until}))})().catch(e=>{console
         with patch.object(browser,'cli_call',return_value='attached'), patch.object(transport,'_code',side_effect=BrowserError("browser 'academic' is not open",70)):
             with self.assertRaises(BrowserError) as error:transport.connect()
         self.assertEqual(error.exception.code,2); self.assertFalse(browser.read_session())
-        with patch.object(browser,'cli_call',return_value='attached'), patch.object(transport,'_code',return_value={'title':'CNKI','url':'https://cnki.net'}):
+        with patch.object(browser,'cli_call',return_value='attached'), patch.object(transport,'_code',return_value={'title':'CNKI','url':'https://cnki.net','script_url':'https://cnki.net'}):
             result=transport.connect()
         self.assertTrue(result['connected']);self.assertIn('verified_at',browser.read_session())
         with patch.object(transport,'_code',side_effect=BrowserError("The browser 'academic' is not open",70)):
@@ -109,7 +111,7 @@ process.stdout.write(JSON.stringify({result,error,until}))})().catch(e=>{console
 
     def test_event_capture_preserves_author_checks_and_avoids_second_click(self):
         def capture(selector,path):
-            Path(path).write_bytes(b'%PDF-1.4\narticle\n%%EOF')
+            Path(path).write_bytes(PDF)
             return {'saved':True,'suggested_filename':'论文_张三.pdf','status':'download_event'}
         with patch.object(cnki,'locate'),patch.object(cnki,'page_status',return_value='detail'),patch.object(br,'read_js',return_value=self.selected()),patch.object(browser.ExtensionBrowser,'cnki_download',side_effect=capture) as click:
             code,result=self.call(self.args)
@@ -123,7 +125,7 @@ process.stdout.write(JSON.stringify({result,error,until}))})().catch(e=>{console
 
     def test_captured_wrong_author_pauses_instead_of_archiving(self):
         def capture(selector,path):
-            Path(path).write_bytes(b'%PDF-1.4\narticle')
+            Path(path).write_bytes(PDF)
             return {'saved':True,'suggested_filename':'其他文章_李四.pdf'}
         with patch.object(cnki,'locate'),patch.object(cnki,'page_status',return_value='detail'),patch.object(br,'read_js',return_value=self.selected()),patch.object(browser.ExtensionBrowser,'cnki_download',side_effect=capture):
             code,result=self.call(self.args)
@@ -131,7 +133,7 @@ process.stdout.write(JSON.stringify({result,error,until}))})().catch(e=>{console
         self.assertFalse(list((self.root/'papers').glob('*.pdf')))
 
     def test_no_event_checks_browser_saved_file_without_reclicking(self):
-        saved=self.root/'论文_张三.pdf';saved.write_bytes(b'%PDF-1.4\narticle')
+        saved=self.root/'论文_张三.pdf';saved.write_bytes(PDF)
         with patch.object(cnki,'locate'),patch.object(cnki,'page_status',return_value='detail'),patch.object(br,'read_js',return_value=self.selected()),patch.object(browser.ExtensionBrowser,'cnki_download',return_value={'status':'no_event'}) as click,patch.object(dw,'wait_download',return_value=saved):
             code,result=self.call(self.args)
         self.assertEqual(code,0,result);self.assertEqual(click.call_count,1)
@@ -142,7 +144,7 @@ process.stdout.write(JSON.stringify({result,error,until}))})().catch(e=>{console
             self.assertEqual(code,2);self.assertTrue(result['result']['wait_for_user'])
             self.assertEqual(self.call(self.args+['--retry'])[0],2)
             self.assertEqual(click.call_count,1)
-        saved=self.root/'论文_张三.pdf';saved.write_bytes(b'%PDF-1.4\narticle')
+        saved=self.root/'论文_张三.pdf';saved.write_bytes(PDF)
         with patch.object(dw,'wait_download',return_value=saved),patch.object(browser.ExtensionBrowser,'cnki_download') as click:
             self.assertEqual(self.call(self.args)[0],0);click.assert_not_called()
         self.assertIsNone(interaction.read())
@@ -184,10 +186,10 @@ process.stdout.write(JSON.stringify({result,error,until}))})().catch(e=>{console
         self.assertEqual(error.exception.code,70);self.assertEqual(run.call_count,1)
 
     def test_locator_action_clicks_once_even_if_click_reports_error_after_download(self):
-        source=(ROOT/'scripts/cnki_download_action.js').read_text().replace('__SELECTOR__','"#pdfDown"').replace('__CAPTURE__','"capture.part"').replace('__EVENT_TIMEOUT__','10')
+        source=(ROOT/'scripts/cnki_download_action.js').read_text().replace('__SELECTOR__','"#pdfDown"').replace('__CAPTURE__','"capture.part"').replace('__EVENT_TIMEOUT__','10').replace('__PROBE__', '"probe"')
         fixture='''const vm=require('vm');let clicks=0,saves=0,removed=0;const listeners={};
-const page={on(e,f){listeners[e]=f},off(e,f){removed++},url(){return 'https://x/article'},waitForTimeout(){return Promise.resolve()},
-locator(){return {async click(){clicks++;listeners.download({suggestedFilename:()=> '论文_张三.pdf',url:()=> 'https://x/file',async saveAs(){saves++}});throw new Error('Execution context was destroyed')}}}};
+const page={bringToFront:async()=>{},evaluate:async()=>JSON.stringify({visibility:'visible'}),context:()=>({on(){},off(){}}),on(e,f){listeners[e]=f},off(e,f){removed++},url(){return 'https://x/article'},waitForTimeout(){return Promise.resolve()},
+locator(){return {async click(options){if(options.trial)return;clicks++;listeners.download({suggestedFilename:()=> '论文_张三.pdf',url:()=> 'https://x/file',async saveAs(){saves++}});throw new Error('Execution context was destroyed')}}}};
 (async()=>{const result=await vm.runInNewContext('('+SOURCE+')',{page})(page);process.stdout.write(JSON.stringify({result,clicks,saves,removed}))})().catch(e=>{console.error(e);process.exit(1)});'''.replace('SOURCE',json.dumps(source))
         r=subprocess.run(['node','-e',fixture],capture_output=True,text=True,check=True)
         result=json.loads(r.stdout)

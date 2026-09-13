@@ -14,6 +14,8 @@ import xml.etree.ElementTree as ET
 from unittest.mock import patch, Mock
 from urllib.error import HTTPError, URLError
 
+from pdf_fixture import PDF
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 from academic_automation import access, cli, cnki, ncbi, pmc, pubmed, pdf_verify, publisher, interaction, browser_runtime as br
@@ -200,9 +202,11 @@ class PubMedTests(unittest.TestCase):
     def test_optional_pdf_missing_parse_failure_and_no_text(self):
         with patch.object(pdf_verify, 'available', return_value=False):
             self.assertEqual(pdf_verify.verify('a.pdf', self.record())['reason'], 'pypdf_not_installed')
-        for module, reason in [(self.pdf_module(failure=True), 'pdf_parse_failed'), (self.pdf_module(), 'no_extractable_first_page')]:
-            with patch.object(pdf_verify, 'available', return_value=True), patch.dict(sys.modules, {'pypdf': module}):
-                self.assertEqual(pdf_verify.verify('a.pdf', self.record())['reason'], reason)
+        with patch.object(pdf_verify, 'available', return_value=True), patch.dict(sys.modules, {'pypdf': self.pdf_module(failure=True)}):
+            with self.assertRaises(BrowserError) as error: pdf_verify.verify('a.pdf', self.record())
+            self.assertEqual(error.exception.details['verification']['reason'], 'pdf_parse_failed')
+        with patch.object(pdf_verify, 'available', return_value=True), patch.dict(sys.modules, {'pypdf': self.pdf_module()}):
+            self.assertEqual(pdf_verify.verify('a.pdf', self.record())['reason'], 'no_extractable_first_page')
 
     def test_pdf_title_author_match_and_mismatch(self):
         record = self.record()
@@ -226,11 +230,11 @@ class PubMedTests(unittest.TestCase):
 
     def test_pubmed_direct_pmc_download_then_cached_no_network(self):
         args = ['download', 'pubmed', '123', self.root/'中文 空格', '--access-policy', 'free-only']
-        def retrieve(version, path): path.write_bytes(b'%PDF-1.4 fixture'); return True
+        def retrieve(version, path): path.write_bytes(PDF); return True
         with patch.object(ncbi, 'fetch', return_value=xml()), patch.object(ncbi, 'links', return_value=[]), patch.object(pmc, 'versions', return_value=[self.version()]), patch.object(pmc, 'retrieve', side_effect=retrieve), patch.object(pdf_verify, 'available', return_value=False), patch.object(br, 'navigate') as navigate:
             code, result = self.call(args)
         self.assertEqual(code, 0); navigate.assert_not_called()
-        self.assertEqual(result['sha256'], hashlib.sha256(b'%PDF-1.4 fixture').hexdigest())
+        self.assertEqual(result['sha256'], hashlib.sha256(PDF).hexdigest())
         with patch.object(ncbi, 'fetch') as fetch, patch.object(pdf_verify, 'available', return_value=False):
             code, cached = self.call(args)
         self.assertEqual(code, 0); fetch.assert_not_called(); self.assertTrue(cached['cached'])
@@ -243,13 +247,13 @@ class PubMedTests(unittest.TestCase):
             code, result = self.call(args)
         self.assertEqual(code, 2)
         cp = result['checkpoint']; self.assertEqual(br.read_json(cp)['phase'], 'publisher')
-        (self.root/'saved.pdf').write_bytes(b'%PDF-1.4 saved')
+        (self.root/'saved.pdf').write_bytes(PDF)
         with patch.object(ncbi, 'fetch') as fetch, patch.object(br, 'navigate') as navigate, patch.object(pdf_verify, 'available', return_value=False):
             code, result = self.call(args)
         self.assertEqual(code, 0); fetch.assert_not_called(); navigate.assert_not_called(); self.assertIsNone(interaction.read())
 
     def test_identity_mismatch_persists_candidate_and_blocks_success(self):
-        dest = self.root/'out'; cp = dest/'.academic-downloads/a.json'; path = self.root/'wrong.pdf'; path.write_bytes(b'%PDF-1.4 wrong')
+        dest = self.root/'out'; cp = dest/'.academic-downloads/a.json'; path = self.root/'wrong.pdf'; path.write_bytes(PDF)
         state = {'source': 'pubmed', 'record': self.record()}
         with patch.object(pdf_verify, 'verify', side_effect=BrowserError('wrong title', 2, {'verification': {'status': 'mismatch'}})):
             with self.assertRaises(BrowserError): cnki.finish_download(path, dest, cp, state)
@@ -287,8 +291,8 @@ class PubMedTests(unittest.TestCase):
         from academic_automation import download_capture as capture
         for policy in access.CHOICES:
             dest = self.root/policy; cp = dest/'.academic-downloads/a.json'; cp.parent.mkdir(parents=True)
-            candidate = self.root/'capture.pdf'; candidate.write_bytes(b'%PDF-1.4 fixture')
-            with access.scope(policy), patch.object(br, 'read_js', side_effect=['{}', 'false']), patch.object(br, 'navigate'), patch.object(br, 'wait_ready'), patch.object(br, 'run_file', return_value='PDF@@https://x.org/main.pdf'), patch.object(publisher, 'direct_pdf', return_value=False), patch.object(capture, 'publisher_control', return_value='a'), patch.object(capture, 'capture', return_value=candidate) as click:
+            candidate = self.root/'capture.pdf'; candidate.write_bytes(PDF)
+            with access.scope(policy), patch.object(br, 'read_js', side_effect=['{}', '{}', 'false']), patch.object(br, 'navigate'), patch.object(br, 'wait_ready'), patch.object(br, 'run_file', return_value='PDF@@https://x.org/main.pdf'), patch.object(publisher, 'direct_pdf', return_value=False), patch.object(capture, 'publisher_control', return_value='a'), patch.object(capture, 'capture', return_value=candidate) as click:
                 result = publisher.article('https://x.org/article', '10.1234/a', dest, 'a.pdf', cp, {})
             if policy == 'all': self.assertEqual(result['status'], 'complete'); click.assert_called_once()
             else:
@@ -296,7 +300,7 @@ class PubMedTests(unittest.TestCase):
                 self.assertEqual(result['access'], 'unknown'); click.assert_not_called()
 
     def test_manual_archive_uses_same_pubmed_identity_checks(self):
-        dest = self.root/'out'; cp = dest/'.academic-downloads/a.json'; path = self.root/'manual.pdf'; path.write_bytes(b'%PDF-1.4 manual')
+        dest = self.root/'out'; cp = dest/'.academic-downloads/a.json'; path = self.root/'manual.pdf'; path.write_bytes(PDF)
         br.atomic_json(cp, {'status': 'waiting', 'source': 'pubmed', 'record': self.record()})
         with patch.object(pdf_verify, 'verify', return_value={'content_verified': True}) as verify:
             code, result = self.call(['archive', dest, '--file', path, '--checkpoint', cp])
@@ -304,13 +308,13 @@ class PubMedTests(unittest.TestCase):
 
     def test_copy_corruption_keeps_source(self):
         from academic_automation import download_watch as dw
-        source = self.root/'a.pdf'; source.write_bytes(b'%PDF-1.4 original')
+        source = self.root/'a.pdf'; source.write_bytes(PDF)
         with patch.object(dw.shutil, 'copyfileobj', side_effect=lambda src, dest: dest.write(b'%PDF-1.4 broken')):
             with self.assertRaises(BrowserError): dw.archive(source, self.root/'out')
         self.assertTrue(source.exists()); self.assertEqual(list((self.root/'out').iterdir()), [])
 
     def test_changed_archive_pauses_instead_of_redownloading(self):
-        source = self.root/'a.pdf'; source.write_bytes(b'%PDF-1.4 original')
+        source = self.root/'a.pdf'; source.write_bytes(PDF)
         dest = self.root/'out'; cp = dest/'.academic-downloads/a.json'
         with patch.object(pdf_verify, 'available', return_value=False):
             result = cnki.finish_download(source, dest, cp, {'source': 'pubmed', 'record': self.record()})

@@ -11,7 +11,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import urldefrag
+from urllib.parse import urldefrag, urlsplit
 
 from .errors import BrowserError
 from .paths import ROOT, SCRIPTS, state_dir
@@ -71,7 +71,8 @@ def session_path():
 
 def read_session():
     try:
-        return json.loads(session_path().read_text(encoding='utf-8'))
+        from .redaction import redact
+        return redact(json.loads(session_path().read_text(encoding='utf-8')))
     except (OSError, ValueError):
         return {}
 
@@ -126,14 +127,24 @@ def cli_result(output):
 
 
 class ExtensionBrowser:
-    def connect(self):
+    def probe(self):
+        page = self._code('''async page => ({url:page.url(), title:await page.title(),
+          script_url:await page.evaluate(() => location.href)})''')
+        if (not isinstance(page, dict) or urlsplit(page.get('url', '')).scheme not in ('http', 'https')
+                or page.get('script_url') != page.get('url')):
+            raise BrowserError('NEED_ORDINARY_TAB: select an ordinary website tab; extension/status pages are not a verified browser connection', 2,
+                               {'phase': 'ordinary_tab', 'page': page})
+        return page
+
+    def connect(self, url=''):
         # The extension presents the browser/tab selection UI. No cookie export.
+        if url and urlsplit(url).scheme not in ('http', 'https'):
+            raise BrowserError('--url must be an http(s) website for a new task tab', 64)
         session_path().unlink(missing_ok=True)
         try:
             cli_call('attach', '--extension=chrome', timeout=120)
-            page = self._code('async page => ({url:page.url(), title:await page.title()})')
-            if not isinstance(page, dict) or not page.get('url'):
-                raise BrowserError('Selected tab could not be read', 70)
+            if url: cli_call('tab-new', url)
+            page = self.probe()
         except BrowserError as exc:
             if exc.code == 69:
                 raise
@@ -197,10 +208,51 @@ class ExtensionBrowser:
     def cnki_download(self, selector, capture_path, event_timeout=12000):
         return self.capture_download(selector, capture_path, event_timeout)
 
+    def select_pdf_popup(self, expected):
+        from .native_save import same_pdf_target
+        pages = self.code('''async page => {
+          const rows=[]; const pages=page.context().pages();
+          // A PDF navigation can detach its opener and leave the CLI focused on
+          // its connection page. Recover only inside this attached context and
+          // only by the checkpoint's exact/recognized PDF target below.
+          const connectionPage=/^chrome-extension:\/\/[^/]+\/connect\.html(?:[?#]|$)/.test(page.url());
+          for(let i=0;i<pages.length;i++) {
+            const p=pages[i];
+            if(connectionPage || p===page || await p.opener().catch(()=>null)===page)
+              rows.push({index:i,url:p.url(),current:p===page});
+          }
+          return rows;
+        }''')
+        matching = [p for p in pages if same_pdf_target(expected or '', p['url'])]
+        if len(matching) > 1:
+            raise BrowserError('NEEDS_USER: multiple same-article PDF tabs are open; select one before saving', 2)
+        if matching and not matching[0]['current']:
+            cli_call('tab-select', str(matching[0]['index']))
+            current = self.code('async page => page.url()')
+            if not same_pdf_target(expected, current):
+                raise BrowserError('NEEDS_USER: the selected PDF tab changed; inspect before saving', 2)
+
+    def native_binding(self):
+        if platform.system() != 'Darwin': return {}
+        page = self.code('''async page => {
+          await page.bringToFront();
+          return await page.evaluate(()=>({url:location.href,type:document.contentType}));
+        }''')
+        # Read Chrome's current window/tab IDs; do not run page JavaScript through
+        # Apple Events or assume that a Playwright page index is a native tab ID.
+        source = '''const c=Application('Google Chrome');
+          const w=c.windows[0], t=w.activeTab();
+          JSON.stringify({window:w.id(),tab:t.id(),url:t.url()});'''
+        binding = json.loads(run_process(['osascript', '-l', 'JavaScript', '-e', source]))
+        if page.get('type') != 'application/pdf' or binding.get('url') != page.get('url'):
+            raise BrowserError('NEEDS_USER: native Chrome window does not match the bound PDF tab', 2)
+        return {'window': binding['window'], 'tab': binding['tab']}
+
     def capture_download(self, selector, capture_path, event_timeout=12000):
         source = (SCRIPTS / 'cnki_download_action.js').read_text(encoding='utf-8')
-        values = {'__SELECTOR__': selector, '__CAPTURE__': str(capture_path), '__EVENT_TIMEOUT__': event_timeout}
-        source = re.sub(r'__SELECTOR__|__CAPTURE__|__EVENT_TIMEOUT__', lambda m: json.dumps(values[m[0]]), source)
+        probe = (SCRIPTS / 'browser_ready.js').read_text(encoding='utf-8').replace('__OPTIONS__', '{"mode":"interaction"}')
+        values = {'__SELECTOR__': selector, '__CAPTURE__': str(capture_path), '__EVENT_TIMEOUT__': event_timeout, '__PROBE__': probe}
+        source = re.sub(r'__SELECTOR__|__CAPTURE__|__EVENT_TIMEOUT__|__PROBE__', lambda m: json.dumps(values[m[0]]), source)
         return self.code(source, timeout=90)
 
 

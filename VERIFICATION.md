@@ -1,5 +1,10 @@
 # PubMed 双平台开发构建验证（2026-09-13）
 
+## 2026-09-13：Playwright 扩展完整性与恢复修复
+
+完整实现、证据和平台边界见[修复验收记录](references/playwright-repair-acceptance-20260913.md)。本轮知网、DRPress 和 Frontiers 各一篇已取得完整文件；CLI 身份核验 2 篇，Frontiers 用已确认题录另作验收补核。Oxford 已通过文章页验证并打开正文 PDF，标签恢复修正后待回复继续原生保存，尚不能宣称扩展查看器保存通过。Windows 继续由测试者验收。
+
+
 版本 `2.0.0-beta.3.pubmed.1`，在 `codex/cross-platform-browser` 实现并准备本地测试包。它不是新的公开 Pre-Release；公开 Beta 3 的标签与附件保留。以下测试在 macOS / Codex 本地命令环境完成，不替代 Windows 或其他 Harness 的验收。
 
 ## 真实样本结果

@@ -12,6 +12,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from pdf_fixture import PDF
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src'))
 from academic_automation import browser, browser_runtime as br, cli, cnki, cnki_batch, cnki_bib, interaction, legacy, publisher, search_resume as sr, download_watch as dw
@@ -110,7 +112,7 @@ class HandoffTests(unittest.TestCase):
         dest=self.root/'papers';cp=dest/'.academic-downloads/test.json'
         br.atomic_json(cp,{'status':'waiting','downloads':str(self.root),'before':dw.snapshot(self.root),'since':0,'name':'requested.pdf'})
         self.pause(cp)
-        (self.root/'browser (1).pdf').write_bytes(b'%PDF-1.4\narticle')
+        (self.root/'browser (1).pdf').write_bytes(PDF)
         with patch.object(publisher,'download') as download:
             code,result=self.call(self.args)
         self.assertEqual(code,0,result);download.assert_not_called()
@@ -171,7 +173,7 @@ class HandoffTests(unittest.TestCase):
         self.assertIn('https://x.org/one',state['records']);self.assertIn('https://x.org/stale',state['errors'])
 
     def test_duplicate_suffix_without_space_and_ambiguous_files(self):
-        for name in ('论文_张三(1).pdf','论文_张三 (2).pdf'):(self.root/name).write_bytes(b'%PDF-1.4\narticle')
+        for name in ('论文_张三(1).pdf','论文_张三 (2).pdf'):(self.root/name).write_bytes(PDF)
         self.assertEqual(len(dw.candidates(self.root,{},'张三')),2)
         with self.assertRaises(BrowserError) as error:dw.wait_download(self.root,{},'张三',timeout=.01,interval=.01)
         self.assertEqual(error.exception.code,4)

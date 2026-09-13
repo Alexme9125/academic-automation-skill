@@ -85,7 +85,12 @@ def file_record(path):
 def verified(record):
     if not isinstance(record, dict) or not record.get('path'):
         return False
-    return file_record(record['path']) == {k: record[k] for k in ('path', 'size', 'mtime_ns') if k in record}
+    if file_record(record['path']) != {k: record[k] for k in ('path', 'size', 'mtime_ns') if k in record}: return False
+    if Path(record['path']).suffix.lower() == '.pdf':
+        from .pdf_verify import verify
+        try: verify(record['path'], {})
+        except BrowserError: return False
+    return True
 
 
 def existing_exact(title, author, folder):

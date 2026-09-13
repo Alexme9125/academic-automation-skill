@@ -17,6 +17,8 @@ from urllib.parse import quote
 from pathlib import Path
 from unittest.mock import patch
 
+from pdf_fixture import PDF
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -38,7 +40,7 @@ class PortableTests(unittest.TestCase):
 
     def pdf(self, name='论文_张三.pdf'):
         path = self.root / name
-        path.write_bytes(b'%PDF-1.4\n1 0 obj <</Type /Pages /Count 1>> endobj\n%%EOF')
+        path.write_bytes(PDF)
         return path
 
     def test_cli_json_missing_author_and_argument_errors(self):
@@ -254,7 +256,7 @@ class ChromeTransportTests(unittest.TestCase):
                                 if self.path == '/protected.pdf' and '/protected-article' not in self.headers.get('Referer', ''):
                                     self.send_response(202); self.end_headers()
                                     self.wfile.write(b'<html>Browser request required</html>'); return
-                                content = b'%PDF-1.4\n1 0 obj <</Type /Pages /Count 1>> endobj\n%%EOF'
+                                content = PDF
                                 self.send_response(200)
                                 self.send_header('Content-Type','application/pdf')
                                 self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote('测试论文_张三.pdf'))

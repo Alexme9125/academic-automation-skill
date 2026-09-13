@@ -8,6 +8,7 @@ import sys
 import time
 import json
 import hashlib
+from xml.etree import ElementTree
 from pathlib import Path
 from .browser_runtime import atomic_json, read_json, read_file as run_file, BrowserError
 
@@ -34,14 +35,40 @@ def snapshot(folder):
     return found
 
 
-def valid_file(path):
+def pdf_format(path):
     p = Path(path)
     try:
-        if p.stat().st_size == 0:
-            return False
         with p.open('rb') as f:
             head = f.read(8)
-        return head.startswith(b'%PDF-') if p.suffix.lower() == '.pdf' else p.suffix.lower() == '.caj'
+            f.seek(max(0, p.stat().st_size - 2048))
+            tail = f.read()
+        # A header alone accepts truncated transfers and HTML wrappers.
+        end = re.search(rb'startxref\s+(\d+)\s+%%EOF(.*)$', tail, re.S)
+        if not head.startswith(b'%PDF-') or not end or not 0 < int(end[1]) < p.stat().st_size:
+            return False
+        extra = end[2].strip(b'\x00\r\n\t ')
+        if not extra: return True
+        # CNKI appends a small, well-formed WebFastLoad FileProperty record after
+        # EOF. Preserve this observed trailer; do not accept arbitrary trailing data.
+        if not extra.startswith(b'WebFastLoad'): return False
+        xml = extra[len(b'WebFastLoad'):].lstrip(b'\xef\xbb\xbf\r\n\t ')
+        if b'<!' in xml: return False
+        try:
+            record = ElementTree.fromstring(xml)
+        except ElementTree.ParseError:
+            return False
+        return (record.tag == 'FileProperty' and record.find('FileName') is not None
+                and all(e.tag in ('Doi', 'FileName', 'TableName', 'Type') and not len(e) for e in record))
+    except OSError:
+        return False
+
+
+def valid_file(path):
+    p = Path(path)
+    if p.suffix.lower() == '.pdf':
+        return pdf_format(p)
+    try:
+        return p.suffix.lower() == '.caj' and p.stat().st_size > 0
     except OSError:
         return False
 

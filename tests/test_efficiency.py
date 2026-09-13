@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from pdf_fixture import PDF
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -33,7 +34,7 @@ class EfficiencyTests(unittest.TestCase):
 
     def pdf(self, name, folder=None):
         p = (folder or self.d) / name
-        p.write_bytes(b'%PDF-1.4\n1 0 obj <</Type /Pages /Count 1>> endobj\n%%EOF')
+        p.write_bytes(PDF)
         return p
 
     def test_unrelated_partial_does_not_block(self):

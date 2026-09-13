@@ -176,7 +176,8 @@ def download(value, dest, name='', retry=False):
         if not record: raise BrowserError('PUBMED_RECORD_MISSING: ' + ident, 3)
         state['record'] = record; br.atomic_json(cp, state)
     existing = Path(dest) / name
-    if existing.exists() and not state.get('file'):
+    rejected = {str(Path(item['path']).resolve()) for item in state.get('rejected_files', [])}
+    if existing.exists() and not state.get('file') and str(existing.resolve()) not in rejected:
         if not dw.valid_file(existing):
             raise BrowserError('EXISTING_FILE_INVALID: inspect the existing destination before requesting another file', 2,
                                {'checkpoint': str(cp), 'path': str(existing)})

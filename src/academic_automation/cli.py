@@ -50,6 +50,7 @@ def parser():
     d = sub.add_parser('doctor'); d.add_argument('--browser', action='store_true', help='Also test the connected tab')
     d.add_argument('--capability', choices=['browser', 'pubmed-data'], default='browser')
     b = sub.add_parser('browser'); b.add_argument('action', choices=['connect', 'disconnect', 'status', 'resolve'])
+    b.add_argument('--url', default='', help='Create a new explicit task tab when connecting the extension')
     b.add_argument('--pending-id'); b.add_argument('--decision', choices=['retry', 'skip']); b.add_argument('--note')
     b.add_argument('--access-policy', choices=access.CHOICES)
     b.add_argument('--pmc-version', type=int, help='Only after a human selects one of the pending PMC versions')
@@ -112,8 +113,12 @@ def doctor(probe=False):
                                                'install': pdf_verify.INSTALL, 'note': pdf_verify.WARNING}}
     if probe:
         with browser.browser_lock():
-            result['page'] = json.loads(br.run_js('JSON.stringify({title:document.title,url:location.href})'))
+            transport = browser.get_browser()
+            if backend == 'extension' and not browser.read_session().get('connected'):
+                raise BrowserError('NEED_CONNECTION: connect the extension before verifying its task tab', 2)
+            result['page'] = transport.probe() if backend == 'extension' else json.loads(br.run_js('JSON.stringify({title:document.title,url:location.href})'))
         result['browser_verified'] = True
+        result['capabilities']['browser'].update(verified=True, download_verified=False)
     return result
 
 
@@ -132,7 +137,11 @@ def dispatch(a):
                     'note': 'Saved connection metadata; use doctor --browser for a live check'}
         if a.action == 'connect' and interaction.read() and not interaction.read().get('user_confirmed'):
             interaction.blocked(interaction.read())
-        return getattr(browser.get_browser(), a.action)()
+        transport = browser.get_browser()
+        if a.action == 'connect' and a.url:
+            if browser.backend_name() != 'extension': raise BrowserError('--url is only supported by extension connect', 64)
+            return transport.connect(a.url)
+        return getattr(transport, a.action)()
     if a.command == 'search':
         if a.source != 'pubmed' and (a.free_full_text or a.sort != 'relevance'):
             raise BrowserError('--free-full-text and --sort are PubMed options', 64)
@@ -182,7 +191,9 @@ def dispatch(a):
     if a.command == 'archive':
         if a.checkpoint:
             state = br.read_json(a.checkpoint)
-            if not a.file or not isinstance(state, dict) or state.get('status') not in ('waiting', 'archiving'):
+            recoverable = isinstance(state, dict) and (state.get('status') in ('waiting', 'archiving')
+                or state.get('status') == 'complete' and state.get('verification', {}).get('status') == 'invalid')
+            if not a.file or not recoverable:
                 raise BrowserError('--checkpoint requires --file and a pending download checkpoint', 64)
             if Path(a.checkpoint).resolve().parent != Path(a.dest).resolve() / '.academic-downloads':
                 raise BrowserError('Checkpoint belongs to a different destination', 64)
@@ -192,7 +203,8 @@ def dispatch(a):
             raise BrowserError('Missing or invalid download snapshot', 64)
         path = Path(a.file) if a.file else dw.wait_download(downloads_dir(), before, a.author,
                                                          time.time() - a.minutes * 60, timeout=30)
-        return {'path': str(dw.archive(path, a.dest, a.name))}
+        verification = pdf_verify.verify(path, {}) if path.suffix.lower() == '.pdf' else {'content_verified': False, 'reason': 'caj_format'}
+        return {'path': str(dw.archive(path, a.dest, a.name)), 'verification': verification}
 
 
 def main(argv=None):
@@ -234,6 +246,8 @@ def main(argv=None):
     except KeyboardInterrupt:
         code = 130; result = {'message': 'Interrupted; repeat the command to resume saved progress'}
     status = 'complete' if code == 0 else 'needs_user' if code == 2 else 'skipped' if code == 6 else 'busy' if code == 75 else 'failed'
+    from .redaction import redact
+    result = redact(result)
     response = {'ok': code == 0, 'status': status, 'code': code, 'result': result}
     if as_json:
         print(json.dumps(response, ensure_ascii=False))

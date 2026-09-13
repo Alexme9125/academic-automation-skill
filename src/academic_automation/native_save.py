@@ -55,7 +55,7 @@ def same_pdf_target(source, actual):
 
 
 def save_pdf(checkpoint, state, url, retry_preflight=False):
-    if platform.system() != 'Darwin' or browser.backend_name() != 'apple-events':
+    if platform.system() != 'Darwin':
         return None
     if state.get('native_save'):
         recovered = recovered_file(state, checkpoint=checkpoint)
@@ -63,7 +63,8 @@ def save_pdf(checkpoint, state, url, retry_preflight=False):
         if not (retry_preflight and can_retry_preflight(state)):
             raise needs_user(checkpoint, state, 'Previous native attempt remains unresolved')
         state.setdefault('native_save_attempts', []).append(state.pop('native_save'))
-    binding = browser.read_session()
+    binding = (br.get_browser().native_binding() if browser.backend_name() == 'extension'
+               else browser.read_session())
     if not binding.get('window') or not binding.get('tab'):
         raise needs_user(checkpoint, state, 'No bound Chrome tab; reconnect after inspecting the current article')
     # The same bound tab can legitimately redirect from the article's PDF link
@@ -75,7 +76,8 @@ def save_pdf(checkpoint, state, url, retry_preflight=False):
         raise needs_user(checkpoint, state, 'PDF address changed outside a recognized publisher redirect; inspect this article')
     folder = (Path(checkpoint).parent / (Path(checkpoint).stem + '.native') / uuid.uuid4().hex).resolve()
     folder.mkdir(parents=True)
-    request = {**binding, 'url': page['url'], 'folder': str(folder), 'filename': 'received.pdf'}
+    request = {**binding, 'url': page['url'], 'folder': str(folder), 'filename': 'received.pdf',
+               'backend': browser.backend_name(), 'pdf_type_verified': True}
     request_path = folder / 'request.json'
     br.atomic_json(request_path, request)
     # Persist BEFORE osascript. A crash/timeout must never cause a second click.
