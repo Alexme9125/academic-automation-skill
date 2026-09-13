@@ -4,9 +4,7 @@
 >
 > **This notice ships in both Windows and macOS packages. Windows currently uses the Playwright extension for webpages and leaves system Save dialogs to the user. Assess any additional system-control permissions requested by your Agent/Harness carefully.**
 
-PubMed development build (`2.0.0-beta.3.pubmed.1`): official API search and metadata, PMC-first downloads, shared access policy and optional PDF identity checks. Not a new public release; Beta 3 tags/assets remain unchanged. See [PubMed guide](references/pubmed.md) and [verification status](VERIFICATION.md).
-
-> **2.0.0-beta.3 cross-platform preview:** fixes extension downloads with actual button clicks and download-event capture, verifies browser attachment, and preserves pending tasks after timeouts. Adds Chinese CNKI search to the shared CLI. Windows tester feedback informed these changes; real Windows retesting is pending. macOS uses Apple Events only. Download the Windows or macOS ZIP from the same Release; neither ZIP bundles runtimes. Start with [Windows installation](references/install-windows.md), [macOS installation](references/install-macos.md), and the [shared CLI](references/cli.md).
+**2.0.0-beta.4 pre-release** adds PubMed API search and PMC-first downloads, rejects incomplete PDFs, and rechecks damaged cached files. Skill workflows use Apple Events only on macOS; Windows uses the official Playwright extension and requires a Token before connecting. If a PDF viewer cannot save automatically, the Agent asks whether to deliver bibliography only or retain tabs for manual downloading. Neither platform package bundles runtimes. Read the [release notes](RELEASE_NOTES.md), [Windows installation](references/install-windows.md), [macOS installation](references/install-macos.md), and [verification record](VERIFICATION.md).
 
 
 **English** | [简体中文](README.zh-CN.md)
@@ -15,7 +13,7 @@ PubMed development build (`2.0.0-beta.3.pubmed.1`): official API search and meta
 
 **Academic Automation Skill** is a personal AI Skill designed to help AI agents automate repetitive academic literature workflows through a web browser, including literature searching, preliminary filtering, downloading, and organization.
 
-It currently supports **CNKI**, **Google Scholar**, and **Web of Science**.
+It currently supports **PubMed**, **CNKI**, **Google Scholar**, and **Web of Science**.
 
 This project is developed primarily through **Vibe Coding** and is continuously tested and improved through real-world academic literature workflows.
 
@@ -51,6 +49,7 @@ Organize downloaded literature and related information to reduce repetitive post
 
 | Platform | Status |
 | --- | --- |
+| PubMed | Preview; official API and PMC downloads |
 | CNKI | Supported |
 | Google Scholar | Supported |
 | Web of Science | Supported |

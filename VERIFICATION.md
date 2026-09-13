@@ -1,4 +1,13 @@
-# PubMed 双平台开发构建验证（2026-09-13）
+# Beta 4 发布验证（2026-09-13）
+
+版本 `2.0.0-beta.4`，分支 `codex/cross-platform-browser`。本次将 PubMed 开发构建及后续连接、文件核验和使用规则修复纳入同一个公开 Pre-Release，保留 Beta 3 的标签和附件。
+
+- 发布前离线回归共 145 项：144 项通过，1 项隔离 Chrome 测试按配置跳过；禁用可选第三方 Python 包后，同一套 145 项检查结果一致。本次没有重新运行真实网站或机构会话。
+- 两端 ZIP 核对 SHA-256、内容排除项和普通字号加粗的权限提示；在中文和空格路径解压，检查版本、默认后端及 PubMed 接口环境入口。macOS 使用包内 `academic.command`；Windows 包在 macOS 检查共享 Python 入口及 `academic.cmd` 内容，原生 Windows 执行仍待测试者验收。
+- Skill 元数据验证及差异格式检查通过。发布说明在最前面强调无障碍权限的范围和“有安全顾虑请勿使用”，两个包均包含同样的中英文 README 提示。
+- 下文保留不同阶段的实测证据；Oxford 后续 Apple Events 自动保存结果见[原生保存验收](references/macos-pdf-save-acceptance.md)。Windows、其他 Harness、中文保存窗口和批量保留标签页仍待分别验收。
+
+发布功能与限制见[Beta 4 说明](RELEASE_NOTES.md)。本次验证输出保存在忽略目录 `tmp/beta4-release/` 及 `tmp/beta4-*-tests.log`，不随安装包分发。
 
 ## 当前使用规则：macOS 仅 Apple Events
 
@@ -17,7 +26,7 @@
 完整实现、证据和平台边界见[修复验收记录](references/playwright-repair-acceptance-20260913.md)。本轮知网、DRPress 和 Frontiers 各一篇已取得完整文件；CLI 身份核验 2 篇，Frontiers 用已确认题录另作验收补核。Oxford 已通过文章页验证并打开正文 PDF，标签恢复修正后待回复继续原生保存，尚不能宣称扩展查看器保存通过。Windows 继续由测试者验收。
 
 
-版本 `2.0.0-beta.3.pubmed.1`，在 `codex/cross-platform-browser` 实现并准备本地测试包。它不是新的公开 Pre-Release；公开 Beta 3 的标签与附件保留。以下测试在 macOS / Codex 本地命令环境完成，不替代 Windows 或其他 Harness 的验收。
+以下为历史 PubMed 开发阶段验证：当时版本 `2.0.0-beta.3.pubmed.1`，在 `codex/cross-platform-browser` 实现并准备本地测试包，尚未公开发布；相关功能现随 Beta 4 分发。测试在 macOS / Codex 本地命令环境完成，不替代 Windows 或其他 Harness 的验收。
 
 ## 真实样本结果
 

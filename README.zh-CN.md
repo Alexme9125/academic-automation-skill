@@ -4,9 +4,7 @@
 >
 > **此提示随 Windows 和 macOS 两个包分发。Windows 当前通过 Playwright 扩展操作网页，系统保存窗口由用户处理。请审慎判断所用 Agent/Harness 请求的任何额外系统控制权限。**
 
-PubMed development build (`2.0.0-beta.3.pubmed.1`): official API search and metadata, PMC-first downloads, shared access policy and optional PDF identity checks. Not a new public release; Beta 3 tags/assets remain unchanged. See [PubMed guide](references/pubmed.md) and [verification status](VERIFICATION.md).
-
-> **2.0.0-beta.3 跨平台预览版：**根据 Windows 测试反馈，扩展下载改为真实按钮点击并捕获下载事件，连接成功前核验标签，超时后保留待人工任务；新增中文知网统一检索入口。修复仍待 Windows 实机复测，macOS 仅使用 Apple Events。同一个 Release 提供 Windows/macOS 两个 ZIP，均不捆绑运行环境。请先阅读 [Windows 安装](references/install-windows.md)、[macOS 安装](references/install-macos.md)和[统一命令行](references/cli.md)。
+**2.0.0-beta.4 预发布版**加入 PubMed 官方接口检索与 PMC 优先下载，修复不完整 PDF 误报成功和损坏缓存复用。macOS 的 Skill 流程仅使用 Apple Events；Windows 使用 Playwright 官方扩展，并在连接前提供 Token。查看器自动保存受阻后，由用户选择仅题录或保留标签页批量手动下载。两个平台包均不捆绑运行环境。请先阅读[发布说明](RELEASE_NOTES.md)、[Windows 安装](references/install-windows.md)、[macOS 安装](references/install-macos.md)及[验证记录](VERIFICATION.md)。
 
 
 [English](README.md) | **简体中文**
@@ -15,7 +13,7 @@ PubMed development build (`2.0.0-beta.3.pubmed.1`): official API search and meta
 
 **Academic Automation Skill** 是一个个人开发的 AI Skill，旨在让 AI Agent 能够通过浏览器完成重复、繁琐的学术文献检索工作，包括文献搜索、初步筛选、下载与整理。
 
-目前支持 **CNKI（中国知网）**、**Google Scholar** 和 **Web of Science**。
+目前支持 **PubMed**、**CNKI（中国知网）**，以及 **Google Scholar** 和 **Web of Science**。
 
 本项目主要通过 **“Vibe Coding”** 的方式开发，并在实际的学术文献检索工作流中持续测试和改进。
 
@@ -51,6 +49,7 @@ Academic Automation Skill 本身不提供数据库账户，也不提供订阅、
 
 | 平台 | 状态 |
 | --- | --- |
+| PubMed | 预览支持，官方接口与 PMC 下载 |
 | 中国知网（CNKI） | 已支持 |
 | Google Scholar | 已支持 |
 | Web of Science | 已支持 |
