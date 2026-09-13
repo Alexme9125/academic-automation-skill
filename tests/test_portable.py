@@ -289,15 +289,15 @@ class ChromeTransportTests(unittest.TestCase):
                         self.assertEqual(sum(path.startswith('/download') for path,ref in requests),1)
                         self.assertFalse(any(path == '/wrong.pdf' for path,ref in requests))
                         self.assertTrue(any(path.startswith('/download') and '/kcms2/article/abstract' in ref for path,ref in requests))
-                        # Publisher compatibility still uses the fixture's configured
-                        # normal download folder; CNKI above needed no external listener.
-                        transport.code('async page => { page.on("download", d => d.saveAs('+json.dumps(str(downloads))+'+"/"+d.suggestedFilename())); return true; }')
+                        # Publisher now owns the same download-event capture, with
+                        # no external save listener or default-folder dependency.
                         with patch.object(publisher,'resolve_doi',return_value=base+'/kcms2/article/abstract'):
-                            result = task(['download','doi','10.1234/fixture',str(Path(folder)/'publisher')])
+                            result = task(['download','doi','10.1234/fixture',str(Path(folder)/'publisher'),'--access-policy','all'])
                         self.assertTrue(dw.valid_file(result['path']))
                         with patch.dict(os.environ,{'CNKI_DOWNLOADS_DIR':str(downloads)}), patch.object(publisher,'resolve_doi',return_value=base+'/protected-article'):
-                            result = task(['download','doi','10.1234/protected',str(Path(folder)/'browser-publisher')])
+                            result = task(['download','doi','10.1234/protected',str(Path(folder)/'browser-publisher'),'--access-policy','all'])
                         self.assertTrue(dw.valid_file(result['path']))
+                        self.assertTrue(br.read_json(result['checkpoint'])['download_event']['saved'])
                         self.assertTrue(any(path == '/protected.pdf' and '/protected-article' in ref for path, ref in requests))
                     finally:
                         server.shutdown(); server.server_close(); thread.join(timeout=3)

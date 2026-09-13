@@ -27,7 +27,7 @@ class HandoffTests(unittest.TestCase):
             'ACADEMIC_BROWSER_BACKEND':'extension', 'ACADEMIC_BROWSER_SESSION':'handoff',
             'CNKI_DOWNLOADS_DIR':str(self.root)})
         env.start(); self.addCleanup(env.stop)
-        self.args = ['download','doi','10.1234/first',str(self.root/'papers')]
+        self.args = ['download','doi','10.1234/first',str(self.root/'papers'), '--access-policy', 'all']
 
     def call(self, args):
         output = io.StringIO()

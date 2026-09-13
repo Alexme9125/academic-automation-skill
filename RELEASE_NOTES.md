@@ -1,3 +1,11 @@
+# 未公开的 PubMed 测试构建
+
+当前源码版本为 `2.0.0-beta.3.pubmed.1`。新增 PubMed 官方接口检索、题录、PMC 优先下载和续跑；四个外文检索来源统一确认订阅范围；PDF 正文核验使用可选 pypdf。macOS 三篇样本已归档，Oxford 包含用户验证与手动保存；Windows 和 macOS 可选扩展仍待实机验收。详细能力、安装条件与边界见 [PubMed 流程](references/pubmed.md) 和 [验证记录](VERIFICATION.md)。
+
+该构建仅供本地测试包验收，未上传新的公开 Pre-Release。下面保留的是已发布 Beta 3 的历史说明，不代表 PubMed 功能已随 Beta 3 发布。
+
+---
+
 # v2.0.0-beta.3：知网自动下载与 Windows 反馈修复
 
 Windows 测试者使用 DSH 与 DeepSeek 运行 Beta 2 时，已完成部分检索和下载，但也遇到程序操作后没有文件的情况，需要手工点击才能继续。本版以这一下载过程为例，将页面按钮点击、浏览器下载事件与文件检查点结合，补充下载结果的核验与恢复，为减少人工补点提供依据。

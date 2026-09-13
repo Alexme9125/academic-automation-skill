@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = ('SKILL.md', 'README.md', 'README.zh-CN.md', 'LICENSE', 'AGENTS.md',
-              'VERIFICATION.md', 'RELEASE_NOTES.md', 'package.json', 'package-lock.json')
+              'VERIFICATION.md', 'RELEASE_NOTES.md', 'package.json', 'package-lock.json', 'requirements-pdf.txt')
 
 
 def source_files(root, target):

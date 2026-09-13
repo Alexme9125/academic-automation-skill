@@ -1,5 +1,7 @@
 # Academic Automation Skill
 
+PubMed development build (`2.0.0-beta.3.pubmed.1`): official API search and metadata, PMC-first downloads, shared access policy and optional PDF identity checks. Not a new public release; Beta 3 tags/assets remain unchanged. See [PubMed guide](references/pubmed.md) and [verification status](VERIFICATION.md).
+
 > **2.0.0-beta.3 cross-platform preview:** fixes extension downloads with actual button clicks and download-event capture, verifies browser attachment, and preserves pending tasks after timeouts. Adds Chinese CNKI search to the shared CLI. Windows tester feedback informed these changes; real Windows retesting is pending. macOS keeps Apple Events as its default. Download the Windows or macOS ZIP from the same Release; neither ZIP bundles runtimes. Start with [Windows installation](references/install-windows.md), [macOS installation](references/install-macos.md), and the [shared CLI](references/cli.md).
 
 

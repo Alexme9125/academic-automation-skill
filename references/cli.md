@@ -4,16 +4,21 @@
 
 全局选项放在子命令之前：`--json`、`--backend extension|apple-events`、`--session NAME`、`--downloads-dir PATH`。默认 macOS 使用 Apple Events，Windows 使用 extension。`CNKI_DOWNLOADS_DIR` 可持久指定 Chrome 实际下载目录；用户自定义下载目录或开启“保存前询问”时须明确该路径。
 
+PubMed、知网外文、WoS、Scholar 检索及外文下载在子命令后使用共享的 `--access-policy all|free-only|free-plus-bib`。**以下涉及该参数的示例以用户已回答相应选择为前提，不能把示例中的 all 当成默认授权。** 用户未说明时先确认是否考虑订阅，拒绝后再问放弃还是保留题录；规则见 [SKILL.md](../SKILL.md#对话流程)。
+
 ## 连接与诊断
 
 ```text
 python3 scripts/academic.py --json doctor
+python3 scripts/academic.py --json doctor --capability pubmed-data
 python3 scripts/academic.py --backend extension browser connect
 python3 scripts/academic.py --backend extension --json doctor --browser
 python3 scripts/academic.py --backend extension browser disconnect
 ```
 
 `doctor` 只检查本机运行环境，不能证明扩展、登录或机构访问可用。扩展 `browser connect` 在附着后实际读取标签标题和 URL，检查通过才保存连接状态；`doctor --browser` 可再次验证。首次扩展连接会出现官方扩展授权和标签选择界面；使用自己的账户完成。不同 Skill 副本共享本机浏览器任务锁，不会并行抢占。断开连接保留用户的 Chrome。
+
+`doctor --capability pubmed-data` 不因缺 Chrome、Node.js 或扩展而失败，分别列出接口运行条件、浏览器能力及可选 `pypdf`。纯 PubMed 接口、题录和 PMC 公开文件不需连接浏览器。该检查不主动测试网络。
 
 同一任务后续命令使用相同 `--backend` / `--session`，也可通过 `ACADEMIC_BROWSER_BACKEND` / `ACADEMIC_BROWSER_SESSION` 设置。默认会话名 `academic`。浏览器重启或目标标签关闭后重新连接。不要导出 cookie 或复制浏览器用户配置。
 
@@ -22,9 +27,12 @@ python3 scripts/academic.py --backend extension browser disconnect
 ```text
 python3 scripts/academic.py search cnki "项目式学习" chinese.json --pages 2
 python3 scripts/academic.py search cnki "SU='孟德尔随机化' AND SU='近视'" chinese.json --expert
-python3 scripts/academic.py search scholar "value-added assessment" scholar.json --pages 2
-python3 scripts/academic.py search wos "value-added assessment" wos.json --pages 2 --oa
-python3 scripts/academic.py search cnki-foreign "value-added assessment" cnki.json --pages 1
+python3 scripts/academic.py search scholar "value-added assessment" scholar.json --pages 2 --access-policy all
+python3 scripts/academic.py search wos "value-added assessment" wos.json --pages 2 --oa --access-policy free-only
+python3 scripts/academic.py search cnki-foreign "value-added assessment" cnki.json --pages 1 --access-policy free-plus-bib
+python3 scripts/academic.py search pubmed "Mendelian randomization" pubmed.json --pages 1 --access-policy free-only
+python3 scripts/academic.py metadata selected.json pubmed-meta.json --source pubmed
+python3 scripts/academic.py bibliography pubmed pubmed-meta.json pubmed.md
 python3 scripts/academic.py metadata urls.txt metadata.json
 python3 scripts/academic.py bibliography scholar scholar.json bibliography.md --title "文献目录"
 python3 scripts/academic.py bibliography wos wos.json bibliography.md
@@ -41,10 +49,14 @@ python3 scripts/academic.py bibliography cnki metadata.json bibliography.md
 python3 scripts/academic.py download cnki "论文完整题名" "第一作者" "文献目录"
 python3 scripts/academic.py download cnki "论文完整题名" "第一作者" "文献目录" --expert "SU='学习进阶' AND SU='化学'" --pages 3
 python3 scripts/academic.py batch titles.txt
-python3 scripts/academic.py download doi "10.xxxx/完整DOI" "文献目录" --name "归档文件名"
+python3 scripts/academic.py download doi "10.xxxx/完整DOI" "文献目录" --name "归档文件名" --access-policy all
+python3 scripts/academic.py download pubmed 37935836 "文献目录" --access-policy free-only
+python3 scripts/academic.py batch selected.json --source pubmed --dest "文献目录"
 ```
 
 批量清单格式仍为 `题名|第一作者|目标文件夹`。中文可用 `--affiliation`、`--index`；批量可用 `--refresh-index`。中文未给第一作者时，在打开浏览器之前停止。
+
+PubMed JSON 清单使用 `{"access_policy":"free-only","rows":[{"pmid":"37935836"}]}`，`rows` 明确指定篇目，批量必须给 `--dest`。PMID 单篇也接受 PubMed URL。详细分页、原始日期、PMC 版本及正文核验见 [PubMed](pubmed.md)。`free-only` 在 PubMed 使用官方免费全文筛选，在 WoS 使用 OA 筛选；其余来源提取后分类，免费未知记录放入 `unclassified_rows`，不能据此断言收费。
 
 单篇进度保存在目标目录的 `.academic-downloads/`。验证码、登录或 PDF 保存窗口需人工处理；处理后重跑原命令，先检查本次快照之后的文件，再决定是否继续。没有新文件会保持暂停；明确需要重新请求时才加 `--retry`。批量遇人工步骤立即退出，不等待无交互终端输入，也不继续打开下一篇。
 
@@ -60,6 +72,8 @@ python3 scripts/academic.py download doi "10.xxxx/完整DOI" "文献目录" --na
 python3 scripts/academic.py --json browser status
 python3 scripts/academic.py --json browser resolve --pending-id "返回的 pending.id" --decision retry --note "用户实际回复"
 ```
+
+当 `pending.details.kind` 为 `access_policy` 时，先完成两步订阅范围确认，再在上面命令追加 `--access-policy <用户选择>`，补回原任务。为 `pmc_version` 时，请用户从返回的版本元数据中明确选择，并追加 `--pmc-version <版本>`。这些选择都不能由等待超时或模型猜测代替。
 
 `resolve` 成功只表示已记录决定，不表示文献已下载。随后重跑 `resume_argv` 对应的原任务（批量可重跑原清单），先查文件再进行一次恢复尝试。再次遇到验证时重新暂停；获准恢复期间其他文章仍被拦住。
 
@@ -85,7 +99,7 @@ python3 scripts/academic.py archive "文献目录" --file "下载目录/实际�
 |---|---|
 | 0 | 请求的操作完成；检索范围由页数限定 |
 | 1 | 无结果、匹配歧义或流程未完成 |
-| 2 | 需要登录、验证码、浏览器连接或人工保存 |
+| 2 | 需要范围选择、版本确认、正文身份核对、登录、验证码、浏览器连接或人工保存 |
 | 3 | 未发现正文下载链接 / DOI 未注册 / 来源页失效，查看 message |
 | 4 | 无唯一、稳定且有效的下载文件 |
 | 5 | 收费页或当前账户无访问权限 |
@@ -98,3 +112,5 @@ python3 scripts/academic.py archive "文献目录" --file "下载目录/实际�
 | 130 | 用户中断，可按检查点恢复 |
 
 `needs_user` 不是成功；有部分题录也不能汇报为全部完成。旧 macOS 命令保留入口，但新 Agent 应只使用统一 CLI；不依赖旧 shell 日志作为协议。
+
+PubMed 下载的 `result.verification.content_verified` 表示首页题名作者检查结果；`result.path` 表示已经归档，两者必须分别统计。未安装 pypdf、解析或文字提取失败时仍可归档，会附带 `verification.warning`；最终必须向用户说明用途、安装方法和可能遗漏的问题。已知身份不符返回 2，不归入正文成功。批量的 `summary.archived`、`summary.content_verified` 和 `pdf_verification_note` 用于最终汇报。

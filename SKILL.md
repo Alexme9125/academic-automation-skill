@@ -1,8 +1,8 @@
 ---
 name: cnki-download
-description: 在知网中文/外文库（CNKI、WWJD）、Web of Science（WoS）或谷歌学术检索文献、整理带链接的题录目录，并按题名清单或 DOI 下载可获取的 PDF/CAJ。适用于文献检索、批量下载及归档；浏览器流程沿用用户已登录的 Chrome；Windows 使用官方扩展，macOS 支持 Apple Events。
+description: 在 PubMed、知网中文/外文库、Web of Science 或 Google Scholar 检索文献、整理带链接题录，按 PMID、DOI 或题名清单下载及归档可获取的全文。检索外文前确认订阅范围，支持人工验证后的续跑。PubMed 接口不依赖浏览器；浏览器流程沿用已登录 Chrome，Windows 使用官方扩展，macOS 默认 Apple Events。
 metadata:
-  version: "2.0.0-beta.3"
+  version: "2.0.0-beta.3.pubmed.1"
 ---
 
 # 学术文献检索、下载与归档
@@ -13,6 +13,7 @@ metadata:
 
 | 用户任务 | 此时读取 | 执行入口 |
 |---|---|---|
+| PubMed、生物医学检索、PMID 或 PubMed URL 清单 | [PubMed](references/pubmed.md) | `search pubmed` → `metadata --source pubmed` → `download pubmed` / `batch --source pubmed` |
 | 知网中文期刊、博硕、会议；中文题名清单 | [中文库](references/chinese-macos.md) | `search cnki` → `download cnki`；批量 `batch` |
 | 知网外文、WWJD；摘要页给 DOI 无 PDF/CAJ | [外文库](references/foreign-macos.md) | `search cnki-foreign` → `metadata` → `bibliography cnki` |
 | Web of Science / WoS / Core Collection | [WoS](references/wos-macos.md) | `search wos` → `bibliography wos` |
@@ -24,7 +25,11 @@ metadata:
 
 ## 对话流程
 
-主路径：方向 → 必要时确认网站/语言 → 检索 → 必要时确认交付方式 → 执行 → 核验汇报。用户已说明或已授权的内容不重复询问。
+主路径：方向 → 必要时确认网站/语言与订阅范围 → 检索 → 必要时确认交付方式 → 执行 → 核验汇报。用户已说明或已授权的内容不重复询问。
+
+**PubMed、知网外文、WoS、Scholar 的共同前置规则**：检索前若用户未说明，先问“是否考虑付费或订阅文献？”；用户拒绝后，再问“这些文献是放弃，还是保留题录？”并等实际回复。已经明确选择“仅免费，其他保留题录”等时直接沿用。同一任务的选择传到检索、下载、清单与检查点，不能作为其他任务的默认答案。考虑订阅只授权尝试现有机构权限，不授权购买。
+
+将回答映射为 `--access-policy all`（完整候选，免费优先，再尝试机构权限）、`free-only`（只免费，其余排除或待分类）、`free-plus-bib`（完整候选，仅下载免费，其余保留题录）。缺少选择时统一入口返回 `needs_user`，尚不检索；用人工交接补回原任务。没有免费标记不等于收费；未知、等待验证、已证实订阅分别记录。没有可靠免费筛选的来源保留 `unclassified_rows`，不能把它们说成收费或从报告里静默删掉。
 
 - 现成题名清单且要求逐篇下全文：中文走中文库，英文走外文/出版社；不再问网站，缺作者或归档路径先补齐。中文下载必须提供第一作者，脚本会在打开浏览器前校验。
 - 只有研究方向：网站或语言未明确时一次问清并等回答，再打开检索页。网站可选知网中文/外文、WoS、Scholar 或多个；语言可选中文、英文、中英。已经说“用 WoS”“用谷歌学术”“从知网下中文”等时直接按指定模式执行。
@@ -40,7 +45,7 @@ metadata:
 
 ## 共用前提与约束
 
-1. 新用户先读[平台安装](references/install-windows.md)（Windows）或[macOS 安装](references/install-macos.md)。正常任务只读[统一命令行](references/cli.md)中对应命令。默认沿用已登录 Chrome，不导出 cookie；Windows 扩展后端为预览，实机验收状态见 `VERIFICATION.md`。
+1. 新用户先读[平台安装](references/install-windows.md)（Windows）或[macOS 安装](references/install-macos.md)。PubMed 官方接口检索、元数据与题录只需要 Python 和网络，不要求 Chrome、Node.js 或扩展；PMC 官方公开文件也可直接下载。需要出版社会话时才连接浏览器。其他浏览器流程默认沿用已登录 Chrome，不导出 cookie；Windows 扩展后端为预览，实机验收状态见 `VERIFICATION.md`。
 2. 使用 `scripts/academic.py` 统一入口；机器调用将 `--json` 放在子命令之前。自定义编排也应调用该入口，不直接导入 `cnki.download` 等内部函数，它们不能作为独立 API 使用。Windows 使用 `py -3`，macOS 使用 `python3`。浏览器连接后绑定选定标签，同一用户的浏览器任务串行执行。出现 `needs_user` 时停止调度，待用户处理后重跑；原始 shell 入口仅用于兼容 macOS。
 3. CNKI 登录/机构权限在中文或外文模式检查；WoS 机构访问在 basic-search 检查。不要要求 Scholar 或纯离线整理任务先登录知网。机构访问与 WoS 顶栏个人 Sign In 不同。
 4. 外文库/WoS 没有知网式 PDF/CAJ 按钮，禁止对这些详情页运行 `cnki_click.js`。外文全文走完整 DOI → 出版社，或真实可用的 PDF 链接。
@@ -58,5 +63,7 @@ metadata:
 搜索/提取进度保存在输出旁的 `.progress.json`。同参数重跑会复用已完成页/URL；要重新获取最新结果时用 `--refresh`。部分完成的结果不能汇报成全部完成。批量下载的身份与文件核验机制见中文参考文档。
 
 全文落盘后核对实际文件类型、题名作者和归档路径，并核对是文章正文而非附录/补充材料；`pdf_pages.py` 给出页数辅助信息，页数不能独自证明正文身份，null 不单独证明下载失败。统计排除 `._*`，CAJ 格式单独注明。
+
+PubMed 使用可选 `pypdf` 检查解析、页数及首页题名和作者。**未安装或文字提取失败仍可完成格式检查与归档**，必须标记“正文未自动核验”；明确身份不符则暂停，不计为成功正文。结束时分别报告“已归档”和“已完成正文自动核验”，说明本轮是否安装并使用了 `pypdf`。未自动核验时提醒：可能未发现错篇、正文与附录混淆或解析问题；安装方式为在 Skill 目录运行 `python3 -m pip install -r requirements-pdf.txt`（Windows 用 `py -3`），重跑原下载命令核验已有文件，无需重下。
 
 汇报目录与归档路径、已有资源、本次新增全文数、仅题录数，以及失败/待人工清单。将检索命中总数、本次抽取数与最终交付数区分开。

@@ -195,6 +195,9 @@ class ExtensionBrowser:
         }'''.replace('TOKEN', json.dumps(marker)).replace('TARGET', json.dumps(url)))
 
     def cnki_download(self, selector, capture_path, event_timeout=12000):
+        return self.capture_download(selector, capture_path, event_timeout)
+
+    def capture_download(self, selector, capture_path, event_timeout=12000):
         source = (SCRIPTS / 'cnki_download_action.js').read_text(encoding='utf-8')
         values = {'__SELECTOR__': selector, '__CAPTURE__': str(capture_path), '__EVENT_TIMEOUT__': event_timeout}
         source = re.sub(r'__SELECTOR__|__CAPTURE__|__EVENT_TIMEOUT__', lambda m: json.dumps(values[m[0]]), source)

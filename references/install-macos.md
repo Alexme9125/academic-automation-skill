@@ -1,5 +1,7 @@
 # macOS 安装
 
+纯 PubMed 检索、元数据、题录和 PMC 官方公开文件只需要 Python 与网络，不需要 Chrome、Node.js 或扩展。先运行 `python3 scripts/academic.py --json doctor --capability pubmed-data`（Windows 用 `py -3`）。仅当转入出版社会话时，才需要以下浏览器配置。可选正文核验运行 `python3 -m pip install -r requirements-pdf.txt`；未安装仍可归档，但必须报告“正文未自动核验”。见 [PubMed 流程](pubmed.md)。
+
 > 新版优先使用[统一命令行](cli.md)。下列 `.sh` 示例仅为 macOS 兼容入口；Windows 使用对应的统一命令。站点选择器与匹配规则两平台共用，退出状态以新版 CLI 文档为准。
 
 下载 `academic-automation-v<版本号>-macos.zip` 并解压，将完整 `cnki-download` 文件夹放入 Agent 的技能目录。Python 核心最低 3.9；新安装建议使用 3.11+。

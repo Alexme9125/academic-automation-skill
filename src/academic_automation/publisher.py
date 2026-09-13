@@ -2,14 +2,13 @@
 import hashlib
 import json
 import re
-import tempfile
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
-from . import browser_runtime as br, download_watch as dw, interaction
+from . import browser_runtime as br, download_watch as dw, interaction, access
 from .cnki import pending_path, resume_download, finish_download
 from .errors import BrowserError
 from .paths import downloads_dir
@@ -110,22 +109,53 @@ def _download(doi, dest, name='', retry=False):
     if done:
         return done
     final = resolve_doi(doi)
+    state = br.read_json(checkpoint, {})
+    state.update(doi=doi, source_url=final, name=name, access_policy=access.current())
+    return article(final, doi, dest, name, checkpoint, state)
+
+
+def article(final, doi, dest, name, checkpoint, state, free=False):
+    """Publisher fallback shares the calling article's checkpoint and identity."""
+    links = state.get('pdf_links', [])
+    # Save a snapshot before navigation as login/challenge may interrupt readiness.
+    folder = downloads_dir()
+    if folder.is_dir() and 'before' not in state:
+        state.update(downloads=str(folder.resolve()), before=dw.snapshot(folder), since=time.time())
+    state.update(status='waiting', publisher_url=final)
+    br.atomic_json(checkpoint, state)
+    try:
+        return _article(final, doi, dest, name, checkpoint, state, free, links)
+    except BrowserError as exc:
+        exc.details.update(checkpoint=str(checkpoint), url=state.get('url', final))
+        raise
+
+
+def _article(final, doi, dest, name, checkpoint, state, free, links):
+    from .browser import backend_name
+    from .download_capture import capture, publisher_control
     host = (urlparse(final).hostname or '').lower()
     direct = []
     if host_is(host, 'nature.com'):
         match = re.search(r'/articles/([^/?]+)', final)
-        if match:
-            direct.append('https://www.nature.com/articles/' + match[1] + '.pdf')
+        if match: direct.append('https://www.nature.com/articles/' + match[1] + '.pdf')
     if host_is(host, 'frontiersin.org'):
         direct += ['https://www.frontiersin.org/articles/' + doi + '/pdf',
                    'https://www.frontiersin.org/journals/education/articles/' + doi + '/pdf']
-    with tempfile.TemporaryDirectory(prefix='academic-pdf-') as tmp:
-        path = Path(tmp) / 'article.pdf'
-        for url in direct:
-            if direct_pdf(url, path):
-                return finish_download(path, dest, checkpoint, {'doi': doi, 'source_url': url, 'name': name}, name)
-        br.navigate(final)
-        br.wait_ready('publisher', 25)  # institution proxy redirects may change hostname.
+    # Persistent staging lets an identity mismatch or interrupted archive recover.
+    path = Path(checkpoint).parent / (Path(checkpoint).stem + '.pdf')
+    for url in direct:
+        if direct_pdf(url, path):
+            state['source_url'] = url
+            return finish_download(path, dest, checkpoint, state, name)
+    current = json.loads(br.read_js('''JSON.stringify({url:location.href,title:document.title,
+      doi:(document.querySelector('meta[name="citation_doi"]')||{}).content||''})'''))
+    from .pdf_verify import norm
+    expected_title = norm(state.get('record', {}).get('title', ''))
+    same_article = (current.get('url') == final or (doi and current.get('doi', '').lower() == doi.lower())
+                    or bool(expected_title and expected_title in norm(current.get('title', ''))))
+    if not same_article: br.navigate(final)
+    br.wait_ready('publisher', 25)
+    if not links:
         if host_is(host, 'sagepub.com'):
             links = ['https://journals.sagepub.com/doi/pdf/' + doi + '?download=true']
         elif host_is(host, 'springer.com') or host_is(host, 'springernature.com'):
@@ -133,28 +163,41 @@ def _download(doi, dest, name='', retry=False):
         else:
             script = 'pub/scirp.js' if host_is(host, 'scirp.org') else 'pub/find_pdf.js'
             links = pdf_candidates(br.run_file(script))
-        for url in links[:3]:
-            if not host_is(host, 'sagepub.com') and direct_pdf(url, path):
-                return finish_download(path, dest, checkpoint, {'doi': doi, 'source_url': url, 'name': name}, name)
+    state['pdf_links'] = links; br.atomic_json(checkpoint, state)
+    for url in links[:3]:
+        if direct_pdf(url, path):
+            state['source_url'] = url
+            return finish_download(path, dest, checkpoint, state, name)
     if not links:
+        if access.public_only():
+            result = access.unavailable('No public main PDF identified; availability unknown')
+            state.update(result); br.atomic_json(checkpoint, state)
+            return {**result, 'checkpoint': str(checkpoint)}
         raise BrowserError('NOLINK: publisher page has no identifiable main-article PDF link; access status remains unknown', 3, {'url': final})
+    if access.public_only() and not free:
+        # A real page OA marker can establish free access; lack of it is unknown.
+        free = br.read_js("String(!!document.querySelector('meta[name=\"citation_open_access\"][content=\"true\"], a[rel=\"license\"][href*=\"creativecommons.org\"]'))") == 'true'
+        if not free:
+            result = access.unavailable('Public retrieval failed; free access unconfirmed, no subscription request issued')
+            state.update(result); br.atomic_json(checkpoint, state)
+            return {**result, 'checkpoint': str(checkpoint)}
     folder = downloads_dir()
-    if not folder.is_dir():
-        raise BrowserError('Set --downloads-dir to Chrome\'s actual download directory', 64)
-    state = {'status': 'waiting', 'doi': doi, 'downloads': str(folder.resolve()),
-             'before': dw.snapshot(folder), 'since': time.time(), 'url': links[0], 'name': name}
+    if not folder.is_dir(): raise BrowserError("Set --downloads-dir to Chrome's actual download directory", 64)
+    # Re-snapshot after any user-authorized retry; file recovery already ran first.
+    state.update(status='waiting', downloads=str(folder.resolve()), before=dw.snapshot(folder),
+                 since=time.time(), url=links[0], source_url=links[0], name=name)
     br.atomic_json(checkpoint, state)
-    script = (br.DIR / 'pub/jump.js').read_text(encoding='utf-8')
-    script = re.sub(r'__URL__|__NAME__', lambda m: json.dumps(links[0] if m[0] == '__URL__' else name), script)
-    br.run_js(script)
+    if backend_name() == 'extension':
+        candidate = capture(checkpoint, state, publisher_control(links[0]))
+        if candidate: return finish_download(candidate, dest, checkpoint, state, name)
+    else:
+        script = (br.DIR / 'pub/jump.js').read_text(encoding='utf-8')
+        script = re.sub(r'__URL__|__NAME__', lambda m: json.dumps(links[0] if m[0] == '__URL__' else name), script)
+        br.run_js(script)
     try:
         path = dw.wait_download(folder, state['before'], since=state['since'], timeout=12, page='publisher')
     except BrowserError as exc:
-        if exc.code == 2:
-            raise BrowserError(str(exc), 2, {**exc.details, 'checkpoint': str(checkpoint),
-                                           'downloads': str(folder), 'url': links[0]}) from exc
-        if exc.code != 4:
-            raise
-        raise BrowserError('NEEDS_USER: if Chrome displays a PDF, save it into the configured download directory, then repeat this command', 2,
-                           {'checkpoint': str(checkpoint), 'downloads': str(folder), 'url': links[0]}) from exc
+        if exc.code not in (2, 4, 70): raise
+        raise BrowserError('NEEDS_USER: handle verification or save the displayed PDF, then resume this article', 2,
+                           {'checkpoint': str(checkpoint), 'downloads': str(folder), 'url': links[0], 'cause': str(exc)}) from exc
     return finish_download(path, dest, checkpoint, state, name)

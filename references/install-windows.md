@@ -1,5 +1,7 @@
 # Windows 安装（预览版）
 
+纯 PubMed 检索、元数据、题录和 PMC 官方公开文件只需要 Python 与网络，不需要 Chrome、Node.js 或扩展。先运行 `python3 scripts/academic.py --json doctor --capability pubmed-data`（Windows 用 `py -3`）。仅当转入出版社会话时，才需要以下浏览器配置。可选正文核验运行 `python3 -m pip install -r requirements-pdf.txt`；未安装仍可归档，但必须报告“正文未自动核验”。见 [PubMed 流程](pubmed.md)。
+
 面向 Windows 10/11 上能执行本地命令的 Coding Agents。已有 Windows 测试者回报部分流程跑通及下载问题，本版据此修复，真实扩展与网站仍待复测，各 Agent 需分别验收；不要把安装成功等同于功能验收通过。
 
 1. 下载 Release 中的 `academic-automation-v<版本号>-windows.zip`，解压得到 `cnki-download`。将完整目录放进所用 Agent 的 Skill 目录，或让 Agent 读取其 `SKILL.md`。

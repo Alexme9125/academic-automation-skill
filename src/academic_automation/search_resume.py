@@ -7,6 +7,7 @@ import sys
 import time
 from pathlib import Path
 from urllib.parse import urlencode
+from . import access
 from .browser_runtime import (DIR, BrowserError, atomic_json, navigate, read_json,
                              run_file, run_js, wait_ready)
 
@@ -90,9 +91,11 @@ def start_wos(q, oa):
 
 
 def search(args):
+    if args.mode == 'wos' and access.current() == 'free-only': args.oa = True
     if args.pages < 1 or (args.mode == 'scholar' and args.pages > 5):
         raise BrowserError('Invalid --pages (Scholar: 1–5)', 64)
     config = {'mode': args.mode, 'query': args.query, 'year': args.year, 'oa': args.oa}
+    if access.current(): config['access_policy'] = access.current()
     cp = str(args.output) + '.progress.json'
     state = checkpoint(cp, config, args.refresh)
     if args.mode == 'scholar':
@@ -112,6 +115,9 @@ def search(args):
                 'complete': len(requested) >= args.pages or bool(requested and not list(requested.values())[-1].get('next'))}
         if args.mode == 'wos':
             data.update(quoted=quoted_query(args.query), summary_url=state.get('summary_url', ''))
+            if args.oa:
+                for row in rows: row.update(access='free', access_evidence='WoS Open Access filter')
+        access.classify(data)
         atomic_json(args.output, data)
 
     # An interrupted new query must not leave an old query's output looking successful.

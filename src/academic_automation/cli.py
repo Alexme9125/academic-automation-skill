@@ -13,7 +13,7 @@ import time
 import subprocess
 from pathlib import Path
 
-from . import browser, browser_runtime as br, cnki, publisher, download_watch as dw, interaction
+from . import browser, browser_runtime as br, cnki, publisher, download_watch as dw, interaction, access, pubmed, pdf_verify
 from .errors import BrowserError
 from .paths import ROOT, downloads_dir
 
@@ -48,22 +48,35 @@ def parser():
     p.add_argument('--downloads-dir', help='Chrome actual download directory')
     sub = p.add_subparsers(dest='command', required=True, parser_class=Parser)
     d = sub.add_parser('doctor'); d.add_argument('--browser', action='store_true', help='Also test the connected tab')
+    d.add_argument('--capability', choices=['browser', 'pubmed-data'], default='browser')
     b = sub.add_parser('browser'); b.add_argument('action', choices=['connect', 'disconnect', 'status', 'resolve'])
     b.add_argument('--pending-id'); b.add_argument('--decision', choices=['retry', 'skip']); b.add_argument('--note')
-    s = sub.add_parser('search'); s.add_argument('source', choices=['cnki', 'cnki-foreign', 'scholar', 'wos'])
+    b.add_argument('--access-policy', choices=access.CHOICES)
+    b.add_argument('--pmc-version', type=int, help='Only after a human selects one of the pending PMC versions')
+    s = sub.add_parser('search'); s.add_argument('source', choices=['cnki', 'cnki-foreign', 'scholar', 'wos', 'pubmed'])
     s.add_argument('query'); s.add_argument('output'); s.add_argument('--pages', type=int, default=1)
     s.add_argument('--year', default=''); s.add_argument('--oa', action='store_true'); s.add_argument('--refresh', action='store_true')
     s.add_argument('--expert', action='store_true', help='CNKI Chinese: query is an exact expert expression')
+    s.add_argument('--access-policy', choices=access.CHOICES)
+    s.add_argument('--sort', choices=['relevance', 'pub_date'], default='relevance')
+    s.add_argument('--free-full-text', action='store_true')
     m = sub.add_parser('metadata'); m.add_argument('input'); m.add_argument('output')
     m.add_argument('--refresh', action='store_true'); m.add_argument('--meta-script', default=str(br.DIR / 'cnki_meta.js'))
+    m.add_argument('--source', choices=['cnki', 'pubmed'], default='cnki')
+    m.add_argument('--access-policy', choices=access.CHOICES)
     d = sub.add_parser('download'); modes = d.add_subparsers(dest='source', required=True, parser_class=Parser)
     c = modes.add_parser('cnki'); c.add_argument('title'); c.add_argument('author'); c.add_argument('dest')
     c.add_argument('--expert', default=''); c.add_argument('--affiliation', default='')
     c.add_argument('--pages', type=int, default=3); c.add_argument('--index', default=''); c.add_argument('--retry', action='store_true')
     o = modes.add_parser('doi'); o.add_argument('doi'); o.add_argument('dest'); o.add_argument('--name', default=''); o.add_argument('--retry', action='store_true')
+    o.add_argument('--access-policy', choices=access.CHOICES)
+    u = modes.add_parser('pubmed'); u.add_argument('pmid'); u.add_argument('dest'); u.add_argument('--name', default=''); u.add_argument('--retry', action='store_true')
+    u.add_argument('--access-policy', choices=access.CHOICES)
     b = sub.add_parser('batch'); b.add_argument('input'); b.add_argument('--expert', default=''); b.add_argument('--affiliation', default='')
     b.add_argument('--pages', type=int, default=3); b.add_argument('--refresh-index', action='store_true'); b.add_argument('--retry', action='store_true')
-    b = sub.add_parser('bibliography'); b.add_argument('source', choices=['cnki', 'scholar', 'wos'])
+    b.add_argument('--source', choices=['cnki', 'pubmed'], default='cnki'); b.add_argument('--dest')
+    b.add_argument('--access-policy', choices=access.CHOICES)
+    b = sub.add_parser('bibliography'); b.add_argument('source', choices=['cnki', 'scholar', 'wos', 'pubmed'])
     b.add_argument('input'); b.add_argument('output'); b.add_argument('--title'); b.add_argument('--theme', default='')
     a = sub.add_parser('archive'); a.add_argument('dest'); a.add_argument('--file', help='Explicit manually saved PDF/CAJ')
     a.add_argument('--name', default=''); a.add_argument('--snapshot'); a.add_argument('--minutes', type=float, default=5)
@@ -93,6 +106,10 @@ def doctor(probe=False):
               'node': node, 'node_version': node_version, 'playwright_cli_expected': expected, 'playwright_cli_installed': installed,
               'downloads': str(downloads_dir()), 'downloads_exists': downloads_dir().is_dir(),
               'windows_validation': 'pending tester acceptance'}
+    result['capabilities'] = {'pubmed_data': {'runtime_ready': True, 'network_verified': False, 'requires_browser': False},
+                              'browser': {'runtime_ready': ready, 'verified': False},
+                              'pdf_identity': {'available': pdf_verify.available(), 'optional': True,
+                                               'install': pdf_verify.INSTALL, 'note': pdf_verify.WARNING}}
     if probe:
         with browser.browser_lock():
             result['page'] = json.loads(br.run_js('JSON.stringify({title:document.title,url:location.href})'))
@@ -103,12 +120,12 @@ def doctor(probe=False):
 def dispatch(a):
     if a.command == 'doctor':
         result = doctor(a.browser)
-        if not result['runtime_ready']:
+        if not result['runtime_ready'] and a.capability != 'pubmed-data':
             raise BrowserError('MISSING_RUNTIME: see runtime checks', 69, result)
         return result
     if a.command == 'browser':
         if a.action == 'resolve':
-            return interaction.resolve(a.pending_id, a.decision, a.note)
+            return interaction.resolve(a.pending_id, a.decision, a.note, a.access_policy, a.pmc_version)
         if a.action == 'status':
             return {'backend': browser.backend_name(), 'session': browser.session_name(), 'connection': browser.read_session(),
                     'pending': interaction.read(),
@@ -117,12 +134,16 @@ def dispatch(a):
             interaction.blocked(interaction.read())
         return getattr(browser.get_browser(), a.action)()
     if a.command == 'search':
+        if a.source != 'pubmed' and (a.free_full_text or a.sort != 'relevance'):
+            raise BrowserError('--free-full-text and --sort are PubMed options', 64)
         if a.oa and a.source != 'wos':
             raise BrowserError('--oa is supported only for WoS', 64)
         if a.year and a.source != 'scholar':
             raise BrowserError('--year is supported only for Scholar', 64)
         if a.expert and a.source != 'cnki':
             raise BrowserError('--expert is supported only for Chinese CNKI search', 64)
+        if a.source == 'pubmed':
+            return pubmed.search(a.query, a.output, a.pages, a.sort, a.free_full_text, a.refresh)
         if a.source == 'cnki':
             return cnki.chinese_search(a.query, a.output, a.pages, a.refresh, a.expert)
         if a.source == 'cnki-foreign':
@@ -131,14 +152,17 @@ def dispatch(a):
         a.mode = a.source; sr.search(a)
         return {'output': str(Path(a.output).resolve()), **br.read_json(a.output, {})}
     if a.command == 'metadata':
+        if a.source == 'pubmed': return pubmed.metadata(a.input, a.output, a.refresh)
         from . import search_resume as sr
         a.query = a.input; sr.metadata(a)
         return {'output': str(Path(a.output).resolve()), 'records': len(br.read_json(a.output, []))}
     if a.command == 'download':
+        if a.source == 'pubmed': return pubmed.download(a.pmid, a.dest, a.name, a.retry)
         if a.source == 'cnki':
             return cnki.download(a.title, a.author, a.dest, a.expert, a.affiliation, a.pages, a.index, a.retry)
         return publisher.download(a.doi, a.dest, a.name, a.retry)
     if a.command == 'batch':
+        if a.source == 'pubmed': return pubmed.batch(a)
         args = [a.input, '--pages', a.pages]
         for key in ('expert', 'affiliation'):
             if getattr(a, key): args += ['--' + key, getattr(a, key)]
@@ -150,6 +174,7 @@ def dispatch(a):
         return {'state': str(Path(state_path(a.input)).resolve()), 'checkpoint': str(checkpoint),
                 **br.read_json(checkpoint, {}).get('summary', {})}
     if a.command == 'bibliography':
+        if a.source == 'pubmed': return pubmed.bibliography(a.input, a.output, a.title)
         args = [a.input, a.output, '--theme', a.theme]
         if a.title: args += ['--title', a.title]
         invoke({'scholar': 'gs_bib', 'cnki': 'cnki_bib', 'wos': 'wos_bib'}[a.source], args)
@@ -184,6 +209,15 @@ def main(argv=None):
         needs_lock = a.command in ('search', 'metadata', 'download') or (a.command == 'browser' and a.action != 'status') or (a.command == 'archive' and a.checkpoint)
         # Batch child processes acquire their own lock; there is no interactive stdin.
         with contextlib.redirect_stdout(sys.stderr):
+            if a.command == 'batch' and a.source == 'pubmed':
+                # A paused child must be resumed by that same child, not blocked by
+                # its parent manifest's identity. Only missing-scope handoffs live here.
+                with browser.browser_lock():
+                    pending = interaction.read()
+                    if not pending or pending['action'] == interaction.action(a):
+                        interaction.execute(a, [sys.executable, str(ROOT / 'scripts/academic.py'), *argv], lambda: {})
+                    else:
+                        access.prepare(a, interaction.action(a))
             with browser.browser_lock() if needs_lock else contextlib.nullcontext():
                 if a.command in ('search', 'metadata', 'download') or (a.command == 'archive' and a.checkpoint):
                     result = interaction.execute(a, [sys.executable, str(ROOT / 'scripts/academic.py'), *argv], lambda: dispatch(a))

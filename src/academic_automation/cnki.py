@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from . import browser_runtime as br, cnki_index as index, download_watch as dw
-from . import search_resume as sr, interaction
+from . import search_resume as sr, interaction, access
 from .paths import downloads_dir
 from .errors import BrowserError
 from .browser import backend_name
@@ -110,27 +110,60 @@ def finish_download(path, dest, checkpoint, state, name=''):
     state.update(candidate=str(Path(path).resolve()), status='archiving',
                  candidate_sha256=hashlib.sha256(Path(path).read_bytes()).hexdigest())
     br.atomic_json(checkpoint, state)
+    if state.get('source') == 'pubmed':
+        from .pdf_verify import verify
+        try:
+            state['verification'] = verify(path, state['record'])
+        except BrowserError as exc:
+            state['verification'] = exc.details.get('verification', {})
+            br.atomic_json(checkpoint, state)
+            exc.details['checkpoint'] = str(checkpoint)
+            raise
     def journal(target):
         state['archive_target'] = str(target)
         br.atomic_json(checkpoint, state)
     saved = dw.archive(path, dest, name or state.get('name', ''), journal=journal)
-    state.update(status='complete', file=file_record(saved))
+    state.update(status='complete', file=file_record(saved), sha256=state['candidate_sha256'])
     br.atomic_json(checkpoint, state)
-    return {'path': str(saved), 'checkpoint': str(checkpoint), 'status': 'complete'}
+    return download_result(state, checkpoint)
+
+
+def download_result(state, checkpoint, cached=False):
+    return {'path': state['file']['path'], 'checkpoint': str(checkpoint), 'status': 'complete', 'cached': cached,
+            **{k: state[k] for k in ('file', 'sha256', 'source_url', 'provenance', 'text_version', 'verification', 'access_policy', 'pmid', 'record') if k in state}}
 
 
 def resume_download(checkpoint, dest, author='', retry=False, name=''):
     from .cnki_batch import verified, file_record
     import hashlib
     state = br.read_json(checkpoint, {})
+    if state.get('source') == 'pubmed' and state.get('status') == 'complete' and not verified(state.get('file')):
+        saved = state.get('file', {}).get('path')
+        if saved and Path(saved).exists():
+            raise BrowserError('ARCHIVED_FILE_CHANGED: inspect the existing file before requesting another copy', 2,
+                               {'checkpoint': str(checkpoint), 'path': saved})
     if state.get('status') == 'complete' and verified(state.get('file')):
-        return {'path': state['file']['path'], 'checkpoint': str(checkpoint), 'status': 'complete', 'cached': True}
+        if state.get('sha256') and hashlib.sha256(Path(state['file']['path']).read_bytes()).hexdigest() != state['sha256']:
+            raise BrowserError('ARCHIVED_FILE_CHANGED: inspect the existing file before retrying', 2, {'checkpoint': str(checkpoint)})
+        if state.get('source') == 'pubmed':
+            from .pdf_verify import verify
+            try:
+                state['verification'] = verify(state['file']['path'], state['record'])
+            except BrowserError as exc:
+                exc.details['checkpoint'] = str(checkpoint)
+                raise
+            br.atomic_json(checkpoint, state)
+        return download_result(state, checkpoint, True)
     if state.get('status') in ('waiting', 'archiving'):
         target = state.get('archive_target')
         if target and dw.valid_file(target) and hashlib.sha256(Path(target).read_bytes()).hexdigest() == state.get('candidate_sha256'):
+            if state.get('source') == 'pubmed':
+                from .pdf_verify import verify
+                state['verification'] = verify(target, state['record'])
             state.update(status='complete', file=file_record(target))
+            state['sha256'] = state['candidate_sha256']
             br.atomic_json(checkpoint, state)
-            return {'path': target, 'checkpoint': str(checkpoint), 'status': 'complete', 'cached': True}
+            return {**download_result(state, checkpoint, True), 'path': target}
         candidate = state.get('candidate')
         if candidate and dw.valid_file(candidate):
             return finish_download(candidate, dest, checkpoint, state, name)
@@ -169,38 +202,8 @@ def extension_download(checkpoint, state, author):
     if selected['status'] != 'selected':
         raise BrowserError('NEEDS_USER: more than one visible download control; inspect this article', 2,
                            {'checkpoint': str(checkpoint)})
-    folder = Path(checkpoint).parent / (Path(checkpoint).stem + '.transfers') / uuid.uuid4().hex
-    folder.mkdir(parents=True)
-    transfer = folder / 'received.part'
-    state['transfer_file'] = str(transfer)
-    br.atomic_json(checkpoint, state)
-    try:
-        event = br.get_browser().cnki_download(selected['selector'], transfer)
-        state['download_event'] = event
-    except BrowserError as exc:
-        state['download_event'] = {'status': 'transport_error', 'error': str(exc)}
-        br.atomic_json(checkpoint, state)
-        # The click may already have taken effect; recover files without re-clicking.
-        if exc.code not in (2, 70): raise
-        event = state['download_event']
-    br.atomic_json(checkpoint, state)
-    if event.get('saved'):
-        name = dw.safe_name(event.get('suggested_filename', ''))
-        if not re.search('_' + re.escape(author) + r'(?:\s*\(\d+\))?\.(?:pdf|caj)$', name, re.I):
-            raise BrowserError('NEEDS_USER: captured filename does not match the expected author; verify the file', 2,
-                               {'checkpoint': str(checkpoint), 'suggested_filename': name, 'transfer_file': str(transfer)})
-        # Keep the transfer path short on Windows; the original filename is applied
-        # only in the final archive and retained in the checkpoint for recovery.
-        saved = folder / ('received' + Path(name).suffix.lower())
-        # Record the intended path before rename, so an interrupted archive can resume.
-        state['candidate'] = str(saved)
-        state['name'] = name
-        br.atomic_json(checkpoint, state)
-        transfer.replace(saved)
-        if not dw.valid_file(saved):
-            raise BrowserError('NEEDS_USER: captured file is not a valid PDF/CAJ', 2, {'checkpoint': str(checkpoint)})
-        return saved
-    return None
+    from .download_capture import capture
+    return capture(checkpoint, state, selected['selector'], author)
 
 
 def download(title, author, dest, expert='', affiliation='', pages=3, index_path='', retry=False):
@@ -319,14 +322,15 @@ def _foreign_search(query, output, pages=1, refresh=False):
     if pages < 1:
         raise BrowserError('Invalid --pages', 64)
     config = {'mode': 'cnki-foreign', 'query': query}
+    if access.current(): config['access_policy'] = access.current()
     cp = str(output) + '.progress.json'
     state = sr.checkpoint(cp, config, refresh)
     if len(state['pages']) >= pages or state.get('exhausted'):
         selected = {k: v for k, v in state['pages'].items() if int(k) <= pages}
         result = {'query': query, 'total': state.get('total'), 'rows': sr.merge_pages(selected), 'complete': True}
-        result['n'] = len(result['rows']); br.atomic_json(output, result)
+        result['n'] = len(result['rows']); access.classify(result); br.atomic_json(output, result)
         return result
-    br.atomic_json(output, {'query': query, 'rows': sr.merge_pages(state['pages']), 'complete': False})
+    br.atomic_json(output, access.classify({'query': query, 'rows': sr.merge_pages(state['pages']), 'complete': False}))
     quoted = sr.quoted_query(query)
     url = BASE + 'SU&kw=' + quote(quoted)
     br.navigate(url); br.wait_ready('cnki-form', 20, url)
@@ -350,7 +354,7 @@ e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('ch
         state['pages'][str(number)] = data
         br.atomic_json(cp, state)
         result = {'query': query, 'total': count, 'rows': sr.merge_pages({k:v for k,v in state['pages'].items() if int(k)<=number}), 'complete': number == pages}
-        result['n'] = len(result['rows']); br.atomic_json(output, result)
+        result['n'] = len(result['rows']); access.classify(result); br.atomic_json(output, result)
         if number == pages:
             break
         if not br.run_file('cnki_next.js').startswith('next'):

@@ -1,5 +1,7 @@
 # Web of Science 流程（站点细节）
 
+开始前沿用本任务的订阅范围回答；未说明时先问是否考虑付费/订阅，拒绝后再问放弃还是保留题录。将回答作为 `--access-policy all|free-only|free-plus-bib` 传给统一检索/下载入口。旧包装器缺少选择也会暂停，按 [人工交接](cli.md#人工交接与调度约束)补回原任务。没有免费标记不等于收费；`unclassified_rows` 须报告为待分类。
+
 > 新版优先使用[统一命令行](cli.md)。下列 `.sh` 示例仅为 macOS 兼容入口；Windows 使用对应的统一命令。站点选择器与匹配规则两平台共用，退出状态以新版 CLI 文档为准。
 
 通过统一浏览器后端在 Web of Science Core Collection 检索并抽题录。全文路径与知网外文库相同：**题录 + DOI → `oa_dl.sh`**。WoS **没有**站内 PDF/CAJ 按钮。

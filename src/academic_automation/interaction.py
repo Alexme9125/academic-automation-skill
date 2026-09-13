@@ -56,7 +56,14 @@ def clear():
 def action(args):
     from .browser import backend_name, session_name
     values = {k: v for k, v in vars(args).items() if k not in
-              ('json', 'backend', 'session', 'downloads_dir', 'retry', 'refresh', 'refresh_index')}
+              ('json', 'backend', 'session', 'downloads_dir', 'retry', 'refresh', 'refresh_index', 'access_policy')}
+    # New optional interface fields must not invalidate existing Beta 3 handoffs.
+    for key, default in (('free_full_text', False), ('sort', 'relevance')):
+        if values.get(key) == default: values.pop(key, None)
+    if args.command in ('metadata', 'batch') and values.get('source') == 'cnki':
+        values.pop('source', None)
+    if args.command == 'batch' and values.get('dest') is None: values.pop('dest', None)
+    if args.command == 'doctor': values.pop('capability', None)
     for key in ('input', 'output', 'dest', 'file', 'checkpoint', 'meta_script', 'index'):
         if values.get(key):
             values[key] = str(Path(values[key]).resolve())
@@ -66,6 +73,10 @@ def action(args):
 
 def details(pending=None):
     pending = pending or read()
+    if pending.get('details', {}).get('kind') == 'access_policy':
+        return {'pending': pending, 'wait_for_user': True, 'may_continue_browser': False,
+                'next_action': 'Ask whether to include subscription articles. If declined, ask whether to exclude them or keep bibliography. '
+                               'WAIT for the actual reply, then browser resolve --decision retry --access-policy <choice> --note <reply>.'}
     return {'pending': pending, 'wait_for_user': True, 'may_continue_browser': False,
             'next_action': 'Ask the user to handle the current page and WAIT for their reply. '
                            'Do not mark this article unavailable or navigate to another article. '
@@ -77,7 +88,7 @@ def blocked(pending):
     raise BrowserError('WAITING_FOR_USER: ' + pending['message'], 2, details(pending))
 
 
-def resolve(pending_id, decision, note):
+def resolve(pending_id, decision, note, access_policy=None, pmc_version=None):
     pending = read()
     if not pending and pending_id and all(c in '0123456789abcdef' for c in pending_id) and len(pending_id) == 32:
         saved = state_dir() / 'user-decisions' / (pending_id + '.json')
@@ -87,6 +98,18 @@ def resolve(pending_id, decision, note):
         raise BrowserError('PENDING_ID_MISMATCH: run browser status', 64)
     if decision not in ('retry', 'skip') or not note or not note.strip():
         raise BrowserError('Record the actual user reply with --decision retry|skip and --note', 64)
+    if decision == 'retry' and pending.get('details', {}).get('kind') == 'access_policy':
+        from . import access
+        access.save(pending['action'], access_policy)
+        pending['access_policy'] = access_policy
+    if decision == 'retry' and pending.get('details', {}).get('kind') == 'pmc_version':
+        from .browser_runtime import read_json, atomic_json
+        versions = pending['details'].get('versions', [])
+        if pmc_version not in [x.get('version') for x in versions]:
+            raise BrowserError('Select a listed --pmc-version after an actual user reply', 64)
+        checkpoint = pending['checkpoint']; state = read_json(checkpoint)
+        state['selected_pmc_version'] = pmc_version
+        atomic_json(checkpoint, state)
     pending['user_decision'] = {'decision': decision, 'note': note.strip(), 'time': time.time()}
     if decision == 'skip':
         # Keep evidence that this was an explicit user choice, not a paywall claim.
@@ -135,6 +158,9 @@ def run(key, argv, callback, recover=None):
                  'action': key, 'resume_argv': list(argv), 'message': str(exc),
                  'checkpoint': exc.details.get('checkpoint', ''),
                  'details': exc.details, 'user_confirmed': False, 'time': time.time()}
+        from . import access
+        policy = exc.details.get('access_policy') or access.current() or (pending or {}).get('access_policy')
+        if policy: state['access_policy'] = policy
         write(state)
         raise BrowserError(str(exc), 2, {**exc.details, **details(state)}) from exc
     if pending:
@@ -143,6 +169,8 @@ def run(key, argv, callback, recover=None):
 
 
 def execute(args, argv, callback):
+    from . import access
+    key = action(args)
     def recover(pending):
         checkpoint = pending.get('checkpoint')
         if args.command != 'download' or not checkpoint:
@@ -158,6 +186,9 @@ def execute(args, argv, callback):
         return None
 
     pending = read()
+    if (pending and pending['action'] == key and pending.get('access_policy')
+            and getattr(args, 'access_policy', None) not in (None, pending['access_policy'])):
+        blocked(pending)
     if args.command == 'archive' and args.checkpoint and pending:
         if Path(args.checkpoint).resolve() != Path(pending.get('checkpoint') or '.').resolve():
             blocked(pending)
@@ -168,5 +199,11 @@ def execute(args, argv, callback):
     def perform(confirmed):
         if confirmed and args.command == 'download':
             args.retry = True
-        return callback()
-    return run(action(args), argv, perform, recover)
+        policy = access.prepare(args, key)
+        with access.scope(policy):
+            try:
+                return callback()
+            except BrowserError as exc:
+                if policy: exc.details['access_policy'] = policy
+                raise
+    return run(key, argv, perform, recover)

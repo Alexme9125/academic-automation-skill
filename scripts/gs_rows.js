@@ -45,6 +45,7 @@
       snippet: snippet.slice(0, 500),
       cited: cited,
       pdf: pdf
+      ,access: 'unknown', access_hint: pdf ? 'Scholar PDF link; public retrieval not yet checked' : ''
     });
   }
   var next = document.querySelector('a.gs_nma[aria-label="Next"], a[aria-label="Next"], #gs_n td:last-child a');

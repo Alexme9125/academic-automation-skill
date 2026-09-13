@@ -47,6 +47,8 @@
       doi: doi,
       ut: acc,
       oa: oa,
+      access: oa || /Free Full Text/i.test(ft) ? 'free' : 'unknown',
+      access_evidence: oa ? 'WoS Open Access marker' : /Free Full Text/i.test(ft) ? 'WoS Free Full Text link' : '',
       ft: ft,
       ft_url: fta
     });

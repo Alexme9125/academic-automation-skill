@@ -7,6 +7,7 @@ import shutil
 import sys
 import time
 import json
+import hashlib
 from pathlib import Path
 from .browser_runtime import atomic_json, read_json, read_file as run_file, BrowserError
 
@@ -125,6 +126,13 @@ def archive(src, folder, name='', journal=None):
             os.fsync(output.fileno())
         if not valid_file(dest):
             raise BrowserError('ARCHIVE_INVALID', 4)
+        def digest(path):
+            value = hashlib.sha256()
+            with path.open('rb') as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b''): value.update(block)
+            return value.digest()
+        if src.stat().st_size != dest.stat().st_size or digest(src) != digest(dest):
+            raise BrowserError('ARCHIVE_COPY_MISMATCH: source preserved', 4)
     except BaseException:
         dest.unlink(missing_ok=True)
         raise

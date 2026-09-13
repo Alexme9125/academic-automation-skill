@@ -1,5 +1,7 @@
 # Academic Automation Skill
 
+PubMed development build (`2.0.0-beta.3.pubmed.1`): official API search and metadata, PMC-first downloads, shared access policy and optional PDF identity checks. Not a new public release; Beta 3 tags/assets remain unchanged. See [PubMed guide](references/pubmed.md) and [verification status](VERIFICATION.md).
+
 > **2.0.0-beta.3 跨平台预览版：**根据 Windows 测试反馈，扩展下载改为真实按钮点击并捕获下载事件，连接成功前核验标签，超时后保留待人工任务；新增中文知网统一检索入口。修复仍待 Windows 实机复测，macOS 默认保留 Apple Events。同一个 Release 提供 Windows/macOS 两个 ZIP，均不捆绑运行环境。请先阅读 [Windows 安装](references/install-windows.md)、[macOS 安装](references/install-macos.md)和[统一命令行](references/cli.md)。
 
 
