@@ -45,6 +45,8 @@ metadata:
 
 ## 共用前提与约束
 
+**Playwright 扩展连接前先取得 Token。** 首次连接或需要重新连接时，先检查 `doctor` 的 `extension_token.present`；没有时向用户索要官方扩展 Token，优先请其配置到运行 Agent 的进程环境 `PLAYWRIGHT_MCP_EXTENSION_TOKEN`，等待实际提供后才执行 `browser connect`。用户已提供时由 Agent 通过进程环境传入；已连接的可用会话沿用，不重复询问。Token 不复述、不写入项目、检查点或发布包，也不作为 `browser resolve --note` 的内容。设置方式见[连接前的 Token](references/cli.md#连接前的-token)。此要求只用于扩展连接；Apple Events、纯 PubMed 接口及离线流程不需要它。
+
 1. 新用户先读[平台安装](references/install-windows.md)（Windows）或[macOS 安装](references/install-macos.md)。PubMed 官方接口检索、元数据与题录只需要 Python 和网络，不要求 Chrome、Node.js 或扩展；PMC 官方公开文件也可直接下载。需要出版社会话时才连接浏览器。其他浏览器流程默认沿用已登录 Chrome，不导出 cookie；Windows 扩展后端为预览，实机验收状态见 `VERIFICATION.md`。
 2. 使用 `scripts/academic.py` 统一入口；机器调用将 `--json` 放在子命令之前。自定义编排也应调用该入口，不直接导入 `cnki.download` 等内部函数，它们不能作为独立 API 使用。Windows 使用 `py -3`，macOS 使用 `python3`。浏览器连接后绑定选定标签，同一用户的浏览器任务串行执行。出现 `needs_user` 时停止调度，待用户处理后重跑；原始 shell 入口仅用于兼容 macOS。
 3. CNKI 登录/机构权限在中文或外文模式检查；WoS 机构访问在 basic-search 检查。不要要求 Scholar 或纯离线整理任务先登录知网。机构访问与 WoS 顶栏个人 Sign In 不同。

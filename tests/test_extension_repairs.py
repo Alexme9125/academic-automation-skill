@@ -35,7 +35,7 @@ class ExtensionRepairTests(unittest.TestCase):
         self.root = Path(temp.name)
         env = patch.dict(os.environ, {'ACADEMIC_STATE_DIR':str(self.root/'state'),
             'CNKI_DOWNLOADS_DIR':str(self.root/'downloads'), 'ACADEMIC_BROWSER_BACKEND':'extension',
-            'ACADEMIC_BROWSER_SESSION':'repairs'})
+            'ACADEMIC_BROWSER_SESSION':'repairs', 'PLAYWRIGHT_MCP_EXTENSION_TOKEN':'fixture-connect-token'})
         env.start(); self.addCleanup(env.stop)
         (self.root/'downloads').mkdir()
         self.dest = self.root/'papers'; self.cp = self.dest/'.academic-downloads/task.json'
@@ -151,6 +151,33 @@ class ExtensionRepairTests(unittest.TestCase):
             with patch.object(browser,'cli_call'), patch.object(transport,'_code',return_value=page):
                 with self.assertRaises(BrowserError) as error:transport.connect()
             self.assertNotIn('token=secret',str(error.exception.details));self.assertFalse(browser.read_session())
+
+    def test_token_gate_precedes_attach_and_preserves_existing_connection(self):
+        browser.save_session({'connected':True,'page':{'url':'https://x.test'}})
+        before=browser.session_path().read_bytes()
+        for token in ('',' \n '):
+            with patch.dict(os.environ,{'PLAYWRIGHT_MCP_EXTENSION_TOKEN':token}), patch.object(browser,'cli_call') as attach:
+                code,result=self.call(['browser','connect','--url','https://x.test'])
+            self.assertEqual(code,2);self.assertEqual(result['kind'],'extension_token')
+            self.assertTrue(result['wait_for_user']);self.assertFalse(result['may_continue_browser'])
+            attach.assert_not_called();self.assertEqual(browser.session_path().read_bytes(),before)
+
+    def test_token_gate_allows_supplied_value_without_recording_it(self):
+        page={'url':'https://x.test','title':'X','script_url':'https://x.test'}
+        with patch.object(browser,'cli_call') as attach, patch.object(browser.ExtensionBrowser,'_code',return_value=page):
+            code,result=self.call(['browser','connect'])
+        self.assertEqual(code,0,result);attach.assert_called_once()
+        token=os.environ['PLAYWRIGHT_MCP_EXTENSION_TOKEN']
+        self.assertNotIn(token,json.dumps(result));self.assertNotIn(token,browser.session_path().read_text())
+        self.assertNotIn(token,str(attach.call_args))
+
+    def test_existing_session_and_api_doctor_do_not_require_token_again(self):
+        browser.save_session({'connected':True})
+        with patch.dict(os.environ,{'PLAYWRIGHT_MCP_EXTENSION_TOKEN':''}), patch.object(browser.ExtensionBrowser,'_code',return_value='ready'):
+            self.assertEqual(browser.ExtensionBrowser().code('async page => true'),'ready')
+            code,result=self.call(['doctor','--capability','pubmed-data'])
+        self.assertEqual(code,0,result)
+        self.assertFalse(result['capabilities']['browser']['extension_token']['present'])
 
     def test_explicit_new_tab_and_script_probe_are_required_before_connected(self):
         page=dict(url='https://x.test',title='X',script_url='https://x.test')

@@ -22,6 +22,8 @@ python3 scripts/academic.py --json doctor --browser
 
 可选扩展后端需要 Node.js 22+、[Playwright 官方扩展](https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm)，并在 Skill 目录运行 `npm ci --ignore-scripts`。随后所有命令显式使用 `--backend extension`；网页操作和扩展原生保存不需要启用 Apple Events JavaScript；若使用 macOS 原生保存，仍需上文的 Chrome / System Events 自动化与辅助功能权限。
 
+选用扩展后端时，首次连接或重新连接前按[Token 前置步骤](cli.md#连接前的-token)取得官方扩展 Token，并传入运行 Agent 的进程环境；缺少时先询问并等待。已有可用会话或用户已提供时不重复索要。默认 Apple Events 不需要 Token。
+
 连接后操作绑定标签，不跟随用户临时切换的活动标签。目标标签关闭或浏览器重启后重新运行 `browser connect`。结束用 `browser disconnect`，不会关闭日常浏览器。
 
 详见[统一命令行](cli.md)及[平台验收](acceptance.md)。

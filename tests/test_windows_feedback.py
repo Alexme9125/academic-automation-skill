@@ -24,7 +24,7 @@ class WindowsFeedbackTests(unittest.TestCase):
         self.root = Path(temp.name)
         env = patch.dict(os.environ, {'ACADEMIC_STATE_DIR':str(self.root/'state'),
             'CNKI_DOWNLOADS_DIR':str(self.root), 'ACADEMIC_BROWSER_BACKEND':'extension',
-            'ACADEMIC_BROWSER_SESSION':'windows-feedback'})
+            'ACADEMIC_BROWSER_SESSION':'windows-feedback', 'PLAYWRIGHT_MCP_EXTENSION_TOKEN':'fixture-connect-token'})
         env.start(); self.addCleanup(env.stop)
         self.args = ['download','cnki','论文','张三',str(self.root/'papers')]
 

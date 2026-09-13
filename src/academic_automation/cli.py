@@ -111,6 +111,10 @@ def doctor(probe=False):
                               'browser': {'runtime_ready': ready, 'verified': False},
                               'pdf_identity': {'available': pdf_verify.available(), 'optional': True,
                                                'install': pdf_verify.INSTALL, 'note': pdf_verify.WARNING}}
+    if backend == 'extension':
+        result['capabilities']['browser']['extension_token'] = {
+            'present': browser.extension_token_present(), 'required_for_new_connection': True,
+            'environment_variable': 'PLAYWRIGHT_MCP_EXTENSION_TOKEN', 'authentication_verified': False}
     if probe:
         with browser.browser_lock():
             transport = browser.get_browser()

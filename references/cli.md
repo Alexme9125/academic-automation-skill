@@ -8,6 +8,8 @@ PubMed、知网外文、WoS、Scholar 检索及外文下载在子命令后使用
 
 ## 连接与诊断
 
+以下扩展连接命令以已完成[Token 前置步骤](#连接前的-token)为前提。
+
 ```text
 python3 scripts/academic.py --json doctor
 python3 scripts/academic.py --json doctor --capability pubmed-data
@@ -17,13 +19,27 @@ python3 scripts/academic.py --backend extension --json doctor --browser
 python3 scripts/academic.py --backend extension browser disconnect
 ```
 
-`doctor` 只检查本机运行环境，不能证明扩展、登录或机构访问可用。扩展 `browser connect` 在附着后实际读取标签标题和 URL，检查通过才保存连接状态；`doctor --browser` 可再次验证。首次扩展连接会出现官方扩展授权和标签选择界面；使用自己的账户完成。不同 Skill 副本共享本机浏览器任务锁，不会并行抢占。断开连接保留用户的 Chrome。
+`doctor` 只检查本机运行环境，不能证明扩展、登录或机构访问可用。扩展 `browser connect` 在附着后实际读取标签标题和 URL，检查通过才保存连接状态；`doctor --browser` 可再次验证。Token 用于自动连接，仍须确认任务普通标签可用；若扩展仍显示授权或标签选择界面，由用户处理。不同 Skill 副本共享本机浏览器任务锁，不会并行抢占。断开连接保留用户的 Chrome。
 
 连接页和扩展状态页不算普通网页。默认验证用户已选择的标签；若需要为本任务新建标签，可明确传 `--url`，不自动挑选其他现有标签。连接检查同时验证网页脚本能读取同一地址。`doctor --browser` 只证明页面可读，其 `download_verified=false` 不代表已实测下载失败，也不表示下载已通过。扩展连接令牌通过进程环境提供，不能放入项目配置或交付记录。
 
 `doctor --capability pubmed-data` 不因缺 Chrome、Node.js 或扩展而失败，分别列出接口运行条件、浏览器能力及可选 `pypdf`。纯 PubMed 接口、题录和 PMC 公开文件不需连接浏览器。该检查不主动测试网络。
 
 同一任务后续命令使用相同 `--backend` / `--session`，也可通过 `ACADEMIC_BROWSER_BACKEND` / `ACADEMIC_BROWSER_SESSION` 设置。默认会话名 `academic`。浏览器重启或目标标签关闭后重新连接。不要导出 cookie 或复制浏览器用户配置。
+
+### 连接前的 Token
+
+本 Skill 按“先提供 Token，再建立扩展连接”执行：
+
+1. 选择扩展后端后，运行 `--backend extension --json doctor`，只查看 `capabilities.browser.extension_token.present`，不要打印环境变量值。
+2. 若为 `false` 且没有可沿用的已连接会话，向用户说明：“请从 Chrome 的 Playwright 官方扩展图标或状态页复制 Token，并将其提供给运行 Agent 的进程环境 `PLAYWRIGHT_MCP_EXTENSION_TOKEN`；提供后再开始连接。”等待实际提供。优先使用 Harness 的私密环境变量注入方式；用户已在本任务中提供时，Agent 直接向连接进程传入，不再索要。
+3. 确认当前连接进程已获得该变量，再执行 `browser connect`，必要时用 `--url` 明确新建任务标签。普通网页和脚本探测通过后才开始浏览器检索。
+
+缺少或仅含空白的 Token 时，连接入口返回退出码 2、`kind=extension_token`、`wait_for_user=true` 和 `may_continue_browser=false`；尚未启动 Playwright，也不清除已有连接元数据。提供 Token 后重跑连接即可；若另有文献 `pending.id`，仍需按原任务实际回复恢复，不能借重新连接清除暂停。
+
+Token 只传给运行进程，不加入 CLI 参数、项目配置、终端回显、汇报或 `browser resolve --note`。`present=true` 只表示值已提供，`authentication_verified=false` 表示环境检查没有验证认证；连接失败仍需诊断扩展、所选标签及 Token 是否有效。已连接会话可能在创建时继承了 Token，后续命令无需重复索要或重新连接。Apple Events、纯接口与离线工作不受此条件约束。
+
+Token 用于免去官方扩展的逐次连接确认；网站登录、人机验证、Cookie 遮罩及系统保存仍按各自流程处理。[官方 Token 说明](https://github.com/microsoft/playwright/blob/main/packages/extension/README.md)。
 
 ## 检索、元数据与题录
 

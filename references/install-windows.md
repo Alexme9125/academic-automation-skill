@@ -12,11 +12,16 @@
 ```powershell
 npm.cmd ci --ignore-scripts
 .\academic.cmd --json doctor
+```
+
+5. 按[连接前的 Token](cli.md#连接前的-token)先取得 Playwright 官方扩展 Token，提供给运行 Agent 的进程环境；缺少时 Agent 须等待，不先发起连接。用户已提供或已有可用会话时不重复索要。
+
+```powershell
 .\academic.cmd browser connect
 .\academic.cmd --json doctor --browser
 ```
 
-连接时在 Chrome 完成扩展授权并选择要操作的标签。执行命令的 Agent、Chrome 和文件必须在同一台电脑。扩展或浏览器没有连接时，CLI 会提示处理，不会改用新的登录配置。
+Token 用于自动建立扩展连接，随后确认要操作的普通标签；若仍显示授权界面，由用户处理。执行命令的 Agent、Chrome 和文件必须在同一台电脑。扩展或浏览器没有连接时，CLI 会提示处理，不会改用新的登录配置。
 
 若 Chrome 下载位置不是用户 Downloads，请在命令最前面加入 `--downloads-dir "D:\文献下载"`。具体检索和下载命令见[统一命令行](cli.md)，验收步骤见[平台验收](acceptance.md)。
 

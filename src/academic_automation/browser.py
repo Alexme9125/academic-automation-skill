@@ -34,6 +34,22 @@ def session_name():
     return name
 
 
+def extension_token_present():
+    return bool(os.environ.get('PLAYWRIGHT_MCP_EXTENSION_TOKEN', '').strip())
+
+
+def require_extension_token():
+    if not extension_token_present():
+        raise BrowserError(
+            'EXTENSION_TOKEN_REQUIRED: 请先从 Playwright 官方扩展界面取得 Token，'
+            '将其提供给运行 Agent 的进程环境 PLAYWRIGHT_MCP_EXTENSION_TOKEN，再开始连接。', 2,
+            {'kind': 'extension_token', 'phase': 'before_connect',
+             'environment_variable': 'PLAYWRIGHT_MCP_EXTENSION_TOKEN',
+             'wait_for_user': True, 'may_continue_browser': False,
+             'next_action': 'Ask the user to supply the extension Token through the Agent process environment and wait. '
+                            'Then repeat browser connect; never print the value or put it in project files.'})
+
+
 @contextlib.contextmanager
 def browser_lock():
     folder = state_dir()
@@ -140,6 +156,9 @@ class ExtensionBrowser:
         # The extension presents the browser/tab selection UI. No cookie export.
         if url and urlsplit(url).scheme not in ('http', 'https'):
             raise BrowserError('--url must be an http(s) website for a new task tab', 64)
+        # Fail before attach or deleting a usable connection. Existing daemon
+        # sessions may already have inherited their token at connection time.
+        require_extension_token()
         session_path().unlink(missing_ok=True)
         try:
             cli_call('attach', '--extension=chrome', timeout=120)

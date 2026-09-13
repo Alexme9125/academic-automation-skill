@@ -1,5 +1,11 @@
 # PubMed 双平台开发构建验证（2026-09-13）
 
+## 2026-09-13：扩展 Token 前置流程
+
+按用户要求，新建 Playwright 扩展连接前必须先提供进程环境 `PLAYWRIGHT_MCP_EXTENSION_TOKEN`。缺少或仅含空白时，连接入口在启动 Playwright 和修改已有连接元数据前返回 `needs_user`；已有会话沿用。`doctor` 只报告 Token 是否存在，不输出值、不宣称认证已验证。同步更新 Skill 及两端安装说明。
+
+145 项离线用例：144 项通过，1 项隔离 Chrome 测试按配置跳过。新增验证缺少 Token 时零连接调用且保留已有元数据、提供后连接而不泄漏值、已有会话与纯接口检查不重复要求 Token。本次未新建真实浏览器连接，保留 Oxford 原生保存的待回复状态；平台实测结论沿用下文证据。
+
 ## 2026-09-13：Playwright 扩展完整性与恢复修复
 
 完整实现、证据和平台边界见[修复验收记录](references/playwright-repair-acceptance-20260913.md)。本轮知网、DRPress 和 Frontiers 各一篇已取得完整文件；CLI 身份核验 2 篇，Frontiers 用已确认题录另作验收补核。Oxford 已通过文章页验证并打开正文 PDF，标签恢复修正后待回复继续原生保存，尚不能宣称扩展查看器保存通过。Windows 继续由测试者验收。
