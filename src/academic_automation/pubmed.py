@@ -193,8 +193,11 @@ def download(value, dest, name='', retry=False):
                 state.update(pmc_version=chosen, source_url=chosen['https_url'], text_version=chosen['text_version'])
                 br.atomic_json(cp, state)
                 path = cp.parent / (cp.stem + '.pdf')
+                state['http_diagnostics'] = str(path) + '.http.json'
+                br.atomic_json(cp, state)
                 if pmc.retrieve(chosen, path):
                     record.update(access='free', access_evidence='PMC official public PDF')
+                    state['download_route'] = 'pmc_https'
                     return finish_download(path, dest, cp, state, name)
                 state['pmc_result'] = 'official_pdf_unavailable_or_invalid'
             else: state['pmc_result'] = 'no_distributable_main_pdf'
@@ -223,14 +226,16 @@ def summary(records, ids):
     archived = [x for x in selected if x.get('code', 0) == 0 and x.get('status') == 'complete' and x.get('path')]
     return {'total': len(ids), 'archived': len(archived),
             'content_verified': sum(bool(x.get('verification', {}).get('content_verified')) for x in archived),
+            'manually_verified': sum(bool(x.get('verification', {}).get('manually_verified')) for x in archived),
             'pending': sum(not x or x.get('code') in (2, 70, 75) for x in selected),
             'metadata_only': sum(x.get('status') == 'metadata_only' for x in selected),
             'excluded': sum(x.get('status') == 'excluded' for x in selected),
             'skipped_by_user': sum(x.get('code') == 6 for x in selected),
             'access_unknown': sum(x.get('access') == 'unknown' and not x.get('path') for x in selected),
             'failed': sum(x.get('code', 0) not in (0, 2, 6, 70, 75) for x in selected),
-            'pdf_verification_note': WARNING if any(not x.get('verification', {}).get('content_verified') for x in archived)
-            else 'pypdf optionally checks parsing, page count and first-page title/author; page count alone is not identity proof.'}
+            'pdf_verification_note': WARNING if any(not x.get('verification', {}).get('content_verified')
+                and not x.get('verification', {}).get('manually_verified') for x in archived)
+            else 'Automatic and user-confirmed manual identity checks are counted separately; page count alone is not identity proof.'}
 
 
 def batch(args):
@@ -238,6 +243,16 @@ def batch(args):
     if not args.dest: raise BrowserError('PubMed batch requires --dest', 64)
     cp = str(args.input) + '.batch-progress.json'
     state = br.read_json(cp, {'records': {}})
+    # Metadata survives terminal/failed child responses that contain no record.
+    catalog = state.setdefault('metadata', {})
+    manifest = br.read_json(args.input)
+    if isinstance(manifest, dict):
+        for row in manifest.get('rows', []):
+            if isinstance(row, dict):
+                ident = pmid(row.get('pmid') or row.get('href', ''))
+                catalog.setdefault(ident, {}).update({k: v for k, v in row.items() if v not in ('', None)})
+    for ident, result in state['records'].items():
+        if result.get('record'): catalog.setdefault(ident, {}).update(result['record'])
     state.update(initial_pmids=state.get('initial_pmids', ids), requested_pmids=ids, access_policy=args.access_policy)
     state['manifest_changes'] = {'added_pmids': [i for i in ids if i not in state['initial_pmids']],
                                  'removed_pmids': [i for i in state['initial_pmids'] if i not in ids]}
@@ -245,7 +260,7 @@ def batch(args):
     # single-article checkpoints use PMID + destination + name, never list position.
     def publish():
         state['summary'] = summary(state['records'], ids)
-        state['rows'] = [dict(state['records'].get(i, {}).get('record', {'pmid': i, 'title': ''}),
+        state['rows'] = [dict(catalog.get(i, {'pmid': i, 'title': ''}),
                              **{k: v for k, v in state['records'].get(i, {}).items() if k != 'record'}) for i in ids]
         br.atomic_json(cp, state)
     publish()
@@ -263,14 +278,20 @@ def batch(args):
         cmd = [sys.executable, str(ROOT / 'scripts/academic.py'), '--json', 'download', 'pubmed', ident,
                args.dest, '--access-policy', args.access_policy]
         if args.retry: cmd.append('--retry')
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
-        try: response = json.loads(proc.stdout)
-        except ValueError as exc: raise BrowserError('PUBMED_CHILD_PROTOCOL: ' + proc.stderr[-1000:], 70) from exc
-        result = dict(response['result'], code=proc.returncode)
-        result.setdefault('status', response.get('status', 'complete' if proc.returncode == 0 else 'failed'))
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=600)
+            response = json.loads(proc.stdout)
+            result = dict(response['result'], code=proc.returncode)
+            result.setdefault('status', response.get('status', 'complete' if proc.returncode == 0 else 'failed'))
+        except (ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as exc:
+            result = {'message': 'PUBMED_CHILD_TIMEOUT' if isinstance(exc, subprocess.TimeoutExpired)
+                      else 'PUBMED_CHILD_PROTOCOL: child did not return a structured result',
+                      'pmid': ident, 'code': 70, 'status': 'failed', 'retryable': True}
+        if result.get('record'): catalog.setdefault(ident, {}).update(result['record'])
+        if catalog.get(ident): result['record'] = dict(catalog[ident])
         state['records'][ident] = result; publish()
-        if proc.returncode in (2, 70, 75, 69, 74, 64):
-            raise BrowserError(result.get('message', 'PubMed batch paused'), proc.returncode,
+        if result['code'] in (2, 70, 75, 69, 74, 64):
+            raise BrowserError(result.get('message', 'PubMed batch paused'), result['code'],
                                {**result, 'batch_checkpoint': str(cp), 'summary': state['summary']})
     if state['summary']['failed']:
         raise BrowserError('PubMed batch completed with unavailable or failed records; inspect each status', 1,
@@ -278,10 +299,36 @@ def batch(args):
     return {'checkpoint': str(cp), **state['summary']}
 
 
-def bibliography(input_path, output, title=None):
+def bibliography(input_path, output, title=None, progress=None):
     data = br.read_json(input_path)
     if not isinstance(data, dict) or not isinstance(data.get('rows'), list): raise BrowserError('Expected PubMed JSON rows', 64)
+    if progress:
+        state = br.read_json(progress)
+        if not isinstance(state, dict) or not isinstance(state.get('records'), dict):
+            raise BrowserError('--progress requires a PubMed batch checkpoint', 64)
+        catalog = dict(state.get('metadata', {}))
+        for r in data['rows']: catalog.setdefault(pmid(r['pmid']), {}).update(r)
+        rows = []
+        for ident in state.get('requested_pmids', [r['pmid'] for r in data['rows']]):
+            result = state['records'].get(ident, {})
+            record = {**result.get('record', {}), **catalog.get(ident, {}), 'pmid': ident}
+            rows.append({**record, **{k: v for k, v in result.items() if k != 'record'}})
+        data = {**data, 'rows': rows, 'access_policy': state.get('access_policy', data.get('access_policy'))}
+    discrepancies = []
+    for r in data['rows']:
+        if not r.get('title'): discrepancies.append({'pmid': r['pmid'], 'reason': 'missing_metadata'})
+        if r.get('path'):
+            path = Path(r['path'])
+            reason = ('file_missing' if not path.is_file() else 'file_changed' if r.get('sha256')
+                      and hashlib.sha256(path.read_bytes()).hexdigest() != r['sha256'] else '')
+            if reason:
+                discrepancies.append({'pmid': r['pmid'], 'reason': reason})
+                r.update(status=reason, code=74)
     lines = ['# ' + (title or 'PubMed 文献目录'), '', '范围选择：' + str(data.get('access_policy') or '未记录'), '']
+    totals = summary({r['pmid']: r for r in data['rows']}, [r['pmid'] for r in data['rows']])
+    if progress or any('status' in r for r in data['rows']):
+        lines += ['交付核对：已归档 {archived}；正文自动核验 {content_verified}；人工核验 {manually_verified}；待处理 {pending}；用户跳过 {skipped_by_user}。'.format(**totals), '']
+    if discrepancies: lines += ['对账异常：' + '; '.join(x['pmid'] + ' ' + x['reason'] for x in discrepancies), '']
     for number, r in enumerate(data['rows'], 1):
         ident = pmid(r['pmid'])
         label = (r.get('title') or 'PMID ' + ident + '（题名待补）').replace('[', '(').replace(']', ')')
@@ -290,14 +337,15 @@ def bibliography(input_path, output, title=None):
                   '   PMID: ' + ident + ('；DOI: ' + r['doi'] if r.get('doi') else '') + ('；PMCID: ' + r['pmcid'] if r.get('pmcid') else ''),
                   '   全文状态：' + r.get('status', r.get('access', 'unknown')) + '。']
         lines += ['   - 链接：https://pubmed.ncbi.nlm.nih.gov/' + ident + '/']
-        if r.get('path'): lines += ['   - 已归档：' + r['path']]
+        if r.get('path'): lines += ['   - ' + ('文件待检查：' if r.get('code') == 74 else '已归档：') + r['path']]
         if r.get('source_url'): lines += ['   - 全文：' + r['source_url']]
         if r.get('verification'):
             v = r['verification']
             lines += ['   - 正文自动核验：' + ('通过' if v.get('content_verified') else '未完成') + '；页数：' + str(v.get('pages'))]
+            if v.get('manually_verified'): lines += ['   - 人工核验：已确认；确认记录与文件 SHA-256 绑定。']
             if v.get('warning'): lines += ['   - ' + v['warning']]
         if r.get('relations'): lines += ['   关联记录：' + '; '.join(x['type'] + ' PMID ' + x['pmid'] for x in r['relations'])]
         lines.append('')
     Path(output).parent.mkdir(parents=True, exist_ok=True)
     Path(output).write_text('\n'.join(lines), encoding='utf-8')
-    return {'output': str(Path(output).resolve()), 'records': len(data['rows'])}
+    return {'output': str(Path(output).resolve()), 'records': len(data['rows']), 'summary': totals, 'discrepancies': discrepancies}

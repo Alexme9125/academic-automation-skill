@@ -93,7 +93,7 @@ PubMed JSON 清单使用 `{"access_policy":"free-only","rows":[{"pmid":"37935836
 
 `needs_user` 是暂停状态，尚未判定该文献无法获取。Agent 必须向用户提出具体问题，例如“《题名》的出版社页面正在进行人机验证，请在当前 Chrome 标签完成后回复我；若希望跳过这篇，请明确说明”，随后等待实际回复。没有提问工具的 Harness 使用普通消息并结束当前执行轮，保留任务待续；超时不是用户回复。不能仅给“建议稍后手动下载”就把任务标记完成。
 
-程序在本机状态目录保存 `pending-user.json`。返回值附带 `wait_for_user: true`、`may_continue_browser: false`、`pending.id` 及可复用的 `resume_argv` 参数数组。此时其他检索、元数据、下载及旧导航/JS 入口会返回 2；更换会话名或加 `--retry` 不会解除暂停。离线题录整理、查看 `browser status`、环境检查与断开连接仍可执行。
+程序在本机状态目录保存浏览器任务的 `pending-user.json`。返回值附带 `wait_for_user: true`、`may_continue_browser: false`、`pending.id` 及可复用的 `resume_argv` 参数数组。此时其他浏览器检索、元数据、下载及旧导航/JS 入口会返回 2；更换会话名或加 `--retry` 不会解除暂停。离线题录整理、查看 `browser status`、环境检查与断开连接仍可执行。纯 PubMed 检索/元数据使用独立数据锁与 `api-pending/` 下的任务暂停，可继续执行而不改变浏览器待办；每个 API 任务仍需自己的范围回答。`browser status` 的 `api_pending` 列出这些待办，用各自的 id 执行同一 `browser resolve` 入口。
 
 用户完成当前页面操作并回复后，先检查是否已有文件：重跑原下载命令可仅核验文件并完成检查点，`archive --file ... --checkpoint ...` 也可明确归档当前篇。若仍需网页操作，记录本次实际回复再运行原命令：
 
@@ -106,9 +106,25 @@ python3 scripts/academic.py --json browser resolve --pending-id "返回的 pendi
 
 `resolve` 成功只表示已记录决定，不表示文献已下载。随后重跑 `resume_argv` 对应的原任务（批量可重跑原清单），先查文件再进行一次恢复尝试。再次遇到验证时重新暂停；获准恢复期间其他文章仍被拦住。
 
+若原因为 `NEED_CONNECTION`，用户确认当前篇标签已就绪后，先记录 retry，再 `browser connect`，最后重跑原任务；不能在未确认时反复 connect，也不能只重跑下载来指望旧窗口 ID 自动修复。macOS 这些浏览器命令均显式加 `--backend apple-events`。
+
+`kind=access_unknown` 表示免费证据尚未确认，不是已证实收费或无全文。保留当前篇，询问用户检查文章级免费信息，或明确选择仅题录、跳过/替换。记录决定后再恢复；程序不会因为缺少标记而自动排除，也不会在每次批次续跑中重复发出相同的直接下载请求。
+
 页面等待超时和跳转竞态属于暂时性错误，返回 70，保留已有 pending；批量在 70 或 75 时也停止，不打开下一篇。只读探测会有限重试上下文切换，点击、提交和下载不会因此自动重放。检查当前页面及下载文件后，再恢复原任务。
 
 用户明确要求跳过当前篇，或按下节选择结束当前自动下载并改为仅题录/人工队列后，才调用 `browser resolve --pending-id "..." --decision skip --note "用户实际回复及交付选择"`。CLI 的 `skipped_by_user` 表示取消这项自动下载；最终文献报告须按实际选择标成“用户跳过”“用户选择仅题录”或“待手动下载”，不能改写成“无权限”。重跑已跳过的自动任务返回退出码 6 / `skipped`；用户后来要求重新尝试，可用原 `pending-id` 再记录 `retry` 决定。
+
+### 人工身份核验归档
+
+只有 `kind=identity_review` 的已完整 PDF 可以走此入口。展示 `verification.expected_title`、`extracted_excerpt`、作者与 DOI，请用户实际核对并回复；普通 retry 备注不是身份确认。收到确认后调用：
+
+```text
+python3 scripts/academic.py --backend apple-events --json archive papers --file "候选PDF路径" --checkpoint "该篇检查点" --confirm-identity --pending-id "返回的ID" --sha256 "返回的sha256" --note "用户实际核对结论"
+```
+
+Windows 使用 `py -3` 并去掉 `--backend apple-events`。必须提供与检查点一致的候选 SHA-256；此入口不允许跳过格式、解析、附录或明确错篇检查。归档返回 `verification.manually_verified=true`、`content_verified=false`，与自动核验分别统计。已明确 skip 的历史候选也可在收到新的实际核对确认后用原 pending id 完成；成功后移除该篇 skip 标记，重跑清单对账。文件或元数据改变时旧确认失效。
+
+PubMed 交付目录用 `bibliography pubmed metadata.json 目录.md --progress 清单.json.batch-progress.json`；稳定题录与下载状态按 PMID 合并。核对 `summary.manually_verified` 和 `discrepancies`，后者报告文件缺失、摘要改变或题录缺失；不把“目录已生成”视为文件均合格。
 
 ### 自动保存受阻后的选择
 

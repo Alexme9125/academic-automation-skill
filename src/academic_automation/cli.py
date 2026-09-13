@@ -11,6 +11,7 @@ import shutil
 import sys
 import time
 import subprocess
+from http.client import HTTPException
 from pathlib import Path
 
 from . import browser, browser_runtime as br, cnki, publisher, download_watch as dw, interaction, access, pubmed, pdf_verify
@@ -79,10 +80,13 @@ def parser():
     b.add_argument('--access-policy', choices=access.CHOICES)
     b = sub.add_parser('bibliography'); b.add_argument('source', choices=['cnki', 'scholar', 'wos', 'pubmed'])
     b.add_argument('input'); b.add_argument('output'); b.add_argument('--title'); b.add_argument('--theme', default='')
+    b.add_argument('--progress', help='PubMed batch checkpoint to merge with metadata')
     a = sub.add_parser('archive'); a.add_argument('dest'); a.add_argument('--file', help='Explicit manually saved PDF/CAJ')
     a.add_argument('--name', default=''); a.add_argument('--snapshot'); a.add_argument('--minutes', type=float, default=5)
     a.add_argument('--author', default='')
     a.add_argument('--checkpoint', help='Complete a pending download using an explicitly verified manual file')
+    a.add_argument('--confirm-identity', action='store_true', help='Only after the user reviews a reported glyph ambiguity')
+    a.add_argument('--pending-id'); a.add_argument('--sha256'); a.add_argument('--note')
     return p
 
 
@@ -138,6 +142,7 @@ def dispatch(a):
         if a.action == 'status':
             return {'backend': browser.backend_name(), 'session': browser.session_name(), 'connection': browser.read_session(),
                     'pending': interaction.read(),
+                    'api_pending': interaction.api_pending(),
                     'note': 'Saved connection metadata; use doctor --browser for a live check'}
         if a.action == 'connect' and interaction.read() and not interaction.read().get('user_confirmed'):
             interaction.blocked(interaction.read())
@@ -187,20 +192,27 @@ def dispatch(a):
         return {'state': str(Path(state_path(a.input)).resolve()), 'checkpoint': str(checkpoint),
                 **br.read_json(checkpoint, {}).get('summary', {})}
     if a.command == 'bibliography':
-        if a.source == 'pubmed': return pubmed.bibliography(a.input, a.output, a.title)
+        if a.source == 'pubmed': return pubmed.bibliography(a.input, a.output, a.title, a.progress)
+        if a.progress: raise BrowserError('--progress requires PubMed bibliography', 64)
         args = [a.input, a.output, '--theme', a.theme]
         if a.title: args += ['--title', a.title]
         invoke({'scholar': 'gs_bib', 'cnki': 'cnki_bib', 'wos': 'wos_bib'}[a.source], args)
         return {'output': str(Path(a.output).resolve())}
     if a.command == 'archive':
+        if a.confirm_identity and not a.checkpoint:
+            raise BrowserError('--confirm-identity requires a matching --checkpoint and --file', 64)
         if a.checkpoint:
             state = br.read_json(a.checkpoint)
             recoverable = isinstance(state, dict) and (state.get('status') in ('waiting', 'archiving')
-                or state.get('status') == 'complete' and state.get('verification', {}).get('status') == 'invalid')
+                or state.get('status') == 'complete' and (state.get('verification', {}).get('status') == 'invalid'
+                    or a.confirm_identity and state.get('manual_identity')))
             if not a.file or not recoverable:
                 raise BrowserError('--checkpoint requires --file and a pending download checkpoint', 64)
             if Path(a.checkpoint).resolve().parent != Path(a.dest).resolve() / '.academic-downloads':
                 raise BrowserError('Checkpoint belongs to a different destination', 64)
+            if a.confirm_identity:
+                from .manual_identity import archive
+                return archive(a, state)
             return cnki.finish_download(a.file, a.dest, a.checkpoint, state, a.name or state.get('name', ''))
         before = br.read_json(a.snapshot) if a.snapshot else None
         if a.snapshot and before is None:
@@ -234,17 +246,22 @@ def main(argv=None):
                         interaction.execute(a, [sys.executable, str(ROOT / 'scripts/academic.py'), *argv], lambda: {})
                     else:
                         access.prepare(a, interaction.action(a))
-            with browser.browser_lock() if needs_lock else contextlib.nullcontext():
+            api_lock = interaction.api_only(a)
+            if a.command == 'browser' and a.action == 'resolve':
+                api_lock = (interaction.pending_for_id(a.pending_id) or {}).get('channel') == 'pubmed-data'
+            with browser.browser_lock('pubmed-data' if api_lock else 'browser') if needs_lock else contextlib.nullcontext():
                 if a.command in ('search', 'metadata', 'download') or (a.command == 'archive' and a.checkpoint):
                     result = interaction.execute(a, [sys.executable, str(ROOT / 'scripts/academic.py'), *argv], lambda: dispatch(a))
                 else:
                     result = dispatch(a)
     except BrowserError as exc:
         code = exc.code; result = {'message': str(exc), **exc.details}
-        if code == 2 and interaction.read():
+        if code == 2 and 'pending' not in result and interaction.read() and not interaction.api_only(a):
             result.update(interaction.details())
-        elif code == 70 and interaction.read():
+        elif code == 70 and interaction.read() and not interaction.api_only(a):
             result.update(pending=interaction.read(), may_continue_browser=False)
+    except HTTPException:
+        code = 70; result = {'message': 'HTTP_TRANSFER_ERROR: retry the original task; inspect its checkpoint first', 'retryable': True}
     except (OSError, ValueError) as exc:
         code = 74; result = {'message': str(exc)}
     except KeyboardInterrupt:

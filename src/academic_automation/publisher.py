@@ -3,8 +3,6 @@ import hashlib
 import json
 import re
 import time
-import uuid
-from http.client import IncompleteRead
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
@@ -34,61 +32,9 @@ def resolve_doi(doi):
 
 
 def direct_pdf(url, target):
-    # No login cookies are exported into this request. Protected CNKI downloads
-    # never pass through this function.
-    if not url.startswith(('https://', 'http://')):
-        return False
-    target = Path(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    journal = target.with_name(target.name + '.http.json')
-    attempts = br.read_json(journal, [])
-    for attempt in range(2):
-        part = target.with_name(target.name + '.' + uuid.uuid4().hex + '.part')
-        result = {'url': url, 'part': str(part), 'received_bytes': 0}
-        retryable = False
-        try:
-            with urlopen(Request(url, headers={'User-Agent': UA, 'Accept-Encoding': 'identity'}), timeout=60) as response:
-                headers = getattr(response, 'headers', {})
-                result['http_status'] = getattr(response, 'status', 200)
-                length = headers.get('Content-Length')
-                result['declared_bytes'] = int(length) if length and length.isdigit() else None
-                if (result['http_status'] != 200 or headers.get('Content-Range')
-                        or headers.get('Content-Encoding', 'identity').lower() != 'identity'):
-                    result['error'] = 'unexpected_response'
-                else:
-                    with part.open('xb') as output:
-                        while True:
-                            block = response.read(1024 * 1024)
-                            if not block: break
-                            output.write(block)
-                            result['received_bytes'] += len(block)
-                    if result['declared_bytes'] is not None and result['received_bytes'] != result['declared_bytes']:
-                        result['error'] = 'incomplete_transfer'; retryable = True
-                    elif not dw.pdf_format(part):
-                        result['error'] = 'invalid_pdf_format'
-                    else:
-                        from .pdf_verify import verify
-                        try:
-                            result['verification'] = verify(part, {})
-                        except BrowserError as exc:
-                            result['error'] = 'invalid_pdf_content'
-                            result['verification'] = exc.details.get('verification', {})
-                        if not result.get('error'):
-                            # Preserve any pre-existing staging evidence instead of overwriting it.
-                            if target.exists():
-                                target.rename(target.with_name(target.name + '.' + uuid.uuid4().hex + '.previous'))
-                            part.replace(target)
-                            result['status'] = 'complete'
-        except HTTPError as exc:
-            result.update(error='http_error', http_status=exc.code)
-        except (URLError, TimeoutError, ConnectionError, IncompleteRead) as exc:
-            result['error'] = 'incomplete_transfer' if isinstance(exc, IncompleteRead) else 'network_error'
-            retryable = True
-        attempts.append(result); br.atomic_json(journal, attempts)
-        if result.get('status') == 'complete': return True
-        if not retryable: break
-        if attempt == 0: time.sleep(.5)
-    return False
+    if not url.startswith(('https://', 'http://')): return False
+    from .http_pdf import fetch
+    return fetch(url, target, opener=urlopen, attempts=2, timeout=60)['status'] == 'complete'
 
 
 def pdf_candidates(links):
@@ -219,23 +165,35 @@ def _article(final, doi, dest, name, checkpoint, state, free, links):
             script = 'pub/scirp.js' if host_is(host, 'scirp.org') else 'pub/find_pdf.js'
             links = pdf_candidates(br.run_file(script))
     state['pdf_links'] = links; br.atomic_json(checkpoint, state)
-    for url in links[:3]:
+    for url in ([] if state.get('access_review_pending') else links[:3]):
         if direct_pdf(url, path):
             state.update(source_url=url, download_route='direct_http')
             return finish_download(path, dest, checkpoint, state, name)
     if not links:
         if access.public_only():
+            state.update(access_review_pending=True, access='unknown'); br.atomic_json(checkpoint, state)
             result = access.unavailable('No public main PDF identified; availability unknown')
             state.update(result); br.atomic_json(checkpoint, state)
             return {**result, 'checkpoint': str(checkpoint)}
         raise BrowserError('NOLINK: publisher page has no identifiable main-article PDF link; access status remains unknown', 3, {'url': final})
     if access.public_only() and not free:
         # A real page OA marker can establish free access; lack of it is unknown.
-        free = br.read_js("String(!!document.querySelector('meta[name=\"citation_open_access\"][content=\"true\"], a[rel=\"license\"][href*=\"creativecommons.org\"]'))") == 'true'
+        raw = br.read_js((br.DIR / 'pub/access.js').read_text(encoding='utf-8'))
+        try: evidence = json.loads(raw)
+        except ValueError as exc:
+            raise BrowserError('ACCESS_PROBE_PROTOCOL: could not read article-level access evidence', 70,
+                               {'retryable': True}) from exc
+        if not isinstance(evidence, dict): evidence = {'access': 'free' if evidence is True else 'unknown'}
+        if evidence.get('doi') and doi and normalize_doi(evidence['doi']).lower() != normalize_doi(doi).lower():
+            raise BrowserError('PUBLISHER_IDENTITY_MISMATCH: free-access evidence belongs to a different DOI', 2)
+        free = evidence.get('access') == 'free'
+        state['access_evidence'] = evidence
         if not free:
+            state.update(access_review_pending=True, access='unknown'); br.atomic_json(checkpoint, state)
             result = access.unavailable('Public retrieval failed; free access unconfirmed, no subscription request issued')
             state.update(result); br.atomic_json(checkpoint, state)
             return {**result, 'checkpoint': str(checkpoint)}
+    state.pop('access_review_pending', None)
     folder = downloads_dir()
     if not folder.is_dir(): raise BrowserError("Set --downloads-dir to Chrome's actual download directory", 64)
     # Re-snapshot after any user-authorized retry; file recovery already ran first.

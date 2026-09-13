@@ -45,10 +45,12 @@ def can_retry_preflight(state):
 def same_pdf_target(source, actual):
     if urldefrag(source)[0] == urldefrag(actual)[0]: return True
     original, current = urlsplit(source), urlsplit(actual)
-    # Observed Oxford PDF delivery redirects to Silverchair with a signed query.
+    # Observed Oxford and JAMA article PDF endpoints redirect to Silverchair.
     # Do not accept an arbitrary PDF the user opened in the bound tab meanwhile.
-    return (original.scheme == current.scheme == 'https' and original.netloc == 'academic.oup.com'
-            and '/article-pdf/' in original.path
+    source_is_article_pdf = (original.netloc == 'academic.oup.com' and '/article-pdf/' in original.path
+                            or original.netloc == 'jamanetwork.com' and re.fullmatch(
+                                r'/journals/[a-zA-Z0-9_-]+/articlepdf/\d+/[^/]+\.pdf', original.path))
+    return (original.scheme == current.scheme == 'https' and bool(source_is_article_pdf)
             and re.fullmatch(r'watermark\d+\.silverchair\.com', current.netloc) is not None
             and PurePosixPath(original.path).name == PurePosixPath(current.path).name
             and current.path.lower().endswith('.pdf'))

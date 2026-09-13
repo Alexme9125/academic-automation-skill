@@ -2,6 +2,7 @@
 import json
 import os
 import time
+from http.client import HTTPException, IncompleteRead
 import xml.etree.ElementTree as ET
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -19,10 +20,12 @@ def get(url, limited=False):
         if limited:
             # Public workflow calls hold the shared process lock. Persist the last
             # request to also limit adjacent short-lived CLI processes to 3/sec.
-            stamp = state_dir() / 'ncbi-last-request.json'
-            delay = .35 - (time.time() - read_json(stamp, {}).get('time', 0))
-            if delay > 0: time.sleep(min(delay, .35))
-            atomic_json(stamp, {'time': time.time()})
+            from .browser import browser_lock
+            with browser_lock('ncbi-rate'):
+                stamp = state_dir() / 'ncbi-last-request.json'
+                delay = .35 - (time.time() - read_json(stamp, {}).get('time', 0))
+                if delay > 0: time.sleep(min(delay, .35))
+                atomic_json(stamp, {'time': time.time()})
         try:
             with urlopen(Request(url, headers={'User-Agent': 'academic-automation/2 PubMed integration'}), timeout=30) as response:
                 return response.read()
@@ -36,10 +39,13 @@ def get(url, limited=False):
                 raise BrowserError('NCBI_RATE_OR_SERVICE_ERROR: retry this task later', 70,
                                    {'http_status': exc.code, 'retry_after': delay, 'retryable': True}) from exc
             time.sleep(delay)
-        except (URLError, TimeoutError, OSError) as exc:
+        except (URLError, TimeoutError, OSError, HTTPException) as exc:
             if attempt == 2:
                 # Do not print a URL that may contain an API key or email.
-                raise BrowserError('NCBI_NETWORK_ERROR: retry this task later', 70, {'retryable': True}) from exc
+                details = {'retryable': True, 'attempts': attempt + 1}
+                if isinstance(exc, IncompleteRead):
+                    details.update(received_bytes=len(exc.partial), missing_bytes=exc.expected)
+                raise BrowserError('NCBI_NETWORK_ERROR: retry this task later', 70, details) from exc
             time.sleep(2 ** attempt)
 
 

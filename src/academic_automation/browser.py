@@ -51,10 +51,10 @@ def require_extension_token():
 
 
 @contextlib.contextmanager
-def browser_lock():
+def browser_lock(name='browser'):
     folder = state_dir()
     folder.mkdir(parents=True, exist_ok=True)
-    with (folder / 'browser.lock').open('a+b') as handle:
+    with (folder / (name + '.lock')).open('a+b') as handle:
         handle.seek(0, 2)
         if not handle.tell():
             handle.write(b'0'); handle.flush()
@@ -67,7 +67,9 @@ def browser_lock():
                 import fcntl
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
-            raise BrowserError('BROWSER_BUSY: another academic task is using this browser', 75) from exc
+            message = ('BROWSER_BUSY: another academic task is using this browser' if name == 'browser'
+                       else 'TASK_BUSY: another task holds the ' + name + ' lock; retry later')
+            raise BrowserError(message, 75) from exc
         try:
             yield
         finally:

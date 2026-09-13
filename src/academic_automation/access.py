@@ -64,6 +64,11 @@ def public_only():
 
 
 def unavailable(reason, access='unknown'):
+    if access == 'unknown':
+        raise BrowserError('ACCESS_UNKNOWN: ' + reason, 2,
+                           {'kind': 'access_unknown', 'access': 'unknown', 'access_policy': current(),
+                            'next_action': 'Keep this article pending. Ask the user to inspect article-level free-access evidence, '
+                                           'or explicitly choose bibliography, skip or replacement. Unknown is not subscription.'})
     return {'status': 'excluded' if current() == 'free-only' else 'metadata_only',
             'access_policy': current(), 'access': access, 'reason': reason}
 

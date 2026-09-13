@@ -1,6 +1,6 @@
 # PubMed 检索、题录与全文
 
-本页适用于未公开发布的 PubMed 测试构建。真实平台与样本结果见 [VERIFICATION.md](../VERIFICATION.md)。先遵守 [Skill 的订阅范围确认](../SKILL.md#对话流程)，已有回答直接沿用。
+PubMed 已随 Beta 4 分发；当前源码还包含 `2.0.0-beta.4.fix.1` 开发修复。真实平台与样本结果见 [VERIFICATION.md](../VERIFICATION.md)。先遵守 [Skill 的订阅范围确认](../SKILL.md#对话流程)，已有回答直接沿用。
 
 ## 接口模式
 
@@ -20,6 +20,8 @@ python3 scripts/academic.py bibliography pubmed metadata.json bibliography.md
 
 EFetch 保存完整作者、原始日期字段、摘要、DOI、PMCID及关联记录；勘误 DOI 不能替换原文 DOI。ELink 只接收 `Full Text Sources` 类别，免费标记是来源证据，下载后还需文件核验。
 
+纯 PubMed 检索与元数据使用独立任务暂停，不受旧浏览器待人工记录阻塞；不会因此清除旧任务。缺少订阅范围时只暂停当前 API 任务，按返回 id 补回选择，不能把别的任务回答作为全局默认。
+
 ## 全文与续跑
 
 ```text
@@ -31,6 +33,8 @@ python3 scripts/academic.py --json batch selected.json --source pubmed --dest pa
 下载顺序：PMC 现行公开数据服务 → 同篇真实出版社入口或 DOI → 必要时人工保存。仅枚举该 PMCID 的元数据，不遍历整站、不使用已退役的 OA Web Service，不需要 AWS 账户或 SDK。正文 PDF 必须来自版本元数据的 `pdf_url`；优先正式发表版本，仅有作者稿时注明。多个版本无法唯一核实时暂停，由用户选择后通过 `browser resolve --pmc-version <版本>` 记录，再重跑原命令。不能用最大版本号或补充材料替代正文。
 
 默认文件名 `PMID-<编号>.pdf`，便于 Windows 长路径控制。`--name` 仅为文件名，不含目录，最长 180 个 UTF-8 字节。目标目录过深仍可能超过 Windows 路径限制，应缩短目录。存储源链接、大小和 SHA-256；同名加序号，不覆盖原文件。归档先复制、同步和核验，再删除源文件。
+
+PMC 与出版社公开文件共用分块传输和诊断。PMC 最多尝试 3 次，单次传输调用有 180 秒总预算；短暂截断保存 `.part` 与 `.transfer.json`，只有强 ETag、长度及本地前缀摘要一致才发 Range 续传请求，否则保留旧片段并重新接收。批次子命令超过 600 秒则停止并保存该篇状态。退出 70 后重跑原命令，不能自行切换来源或跳到另一篇掩盖问题。
 
 macOS 仅使用 Apple Events，显式传 `--backend apple-events`，不使用 Playwright；Windows 出版社会话须安装 [Playwright 官方扩展](install-windows.md)并先提供 Token。Windows 扩展监听真实下载事件，无事件先检查下载目录，不重复点击。macOS 先尝试页内下载；确认没有落盘后，可识别 Chrome 内置 PDF 查看器的“下载”按钮及系统保存窗口，自动选目录、保存和归档，额外权限见 [macOS 安装](install-macos.md)。Windows 查看器自动保存尚不能保证稳定，受阻时先询问“仅题录”或“保留标签页、批量手动下载”，等待实际选择，见[受阻后的选择](cli.md#自动保存受阻后的选择)。
 
@@ -56,6 +60,8 @@ python3 -m pip install -r requirements-pdf.txt
 `pypdf` 是可选的。已安装时检查 PDF 可解析性、页数、首页题名和第一作者；缺少它或文字提取失败时允许归档，但报告“正文未自动核验”。已安装却无法解析、或者文件结构不完整时不能计为成功，保留诊断并暂停；旧缓存同样重验。明确题名作者不符则暂停，请核对当前文件或提供正确正文。页数不能单独证明正文身份。
 
 报告至少区分：选定总数、已归档、已完成正文自动核验、仅题录、排除、未知、待人工和失败。说明本轮 pypdf 的使用情况及影响；未核验时必须提醒可能未发现错篇、正文与附录混淆或解析问题。安装后重跑原命令会核验已归档文件，不再下载。批量检查点可直接交给 `bibliography pubmed` 生成含最终状态的目录。
+
+β 字形等已识别的提取歧义会返回 `identity_review`，仍不算自动通过。实际用户确认后按[人工身份核验归档](cli.md#人工身份核验归档)处理，单列人工核验数量。下载交付推荐 `bibliography pubmed metadata.json 目录.md --progress selected.json.batch-progress.json`，避免只从元数据输出 `free` 而遗漏归档状态；跳过与失败均保留题录。`discrepancies` 非空时须说明文件缺失、变更或元数据缺口。
 
 ## 官方依据
 

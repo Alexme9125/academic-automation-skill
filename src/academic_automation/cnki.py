@@ -128,12 +128,16 @@ def verify_download(path, checkpoint, state):
                                {'verification': {'status': 'invalid', 'reason': 'incomplete_or_invalid_format'}})
         if Path(path).suffix.lower() == '.pdf':
             record = state.get('record') or {'title': state.get('title', ''), 'first_author': state.get('author', '')}
-            state['verification'] = verify(path, record)
+            state['verification'] = (verify(path, record, state['manual_identity']) if state.get('manual_identity')
+                                     else verify(path, record))
         else:
             state['verification'] = {'status': 'unverified', 'content_verified': False, 'reason': 'caj_format'}
     except BrowserError as exc:
         state['verification'] = exc.details.get('verification', {})
         exc.details.update(checkpoint=str(checkpoint), path=str(path))
+        if exc.details.get('kind') == 'identity_review':
+            import hashlib
+            exc.details['sha256'] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
         if state['verification'].get('status') == 'invalid': exc.details['kind'] = 'invalid_file'
         br.atomic_json(checkpoint, state)
         raise
@@ -148,7 +152,7 @@ def reject_invalid_for_retry(path, checkpoint, state, retry):
         # and retain its diagnosis, before allowing a fresh bounded request.
         state.setdefault('rejected_files', []).append({'path': str(path), 'verification': state['verification']})
         for key in ('file', 'sha256', 'archive_target', 'candidate', 'candidate_sha256', 'transfer_file',
-                    'download_event', 'native_save', 'verification', 'publisher_stage'):
+                    'download_event', 'native_save', 'verification', 'manual_identity', 'publisher_stage'):
             state.pop(key, None)
         state['status'] = 'retry_ready'
         br.atomic_json(checkpoint, state)
@@ -158,7 +162,7 @@ def reject_invalid_for_retry(path, checkpoint, state, retry):
 
 def download_result(state, checkpoint, cached=False):
     return {'path': state['file']['path'], 'checkpoint': str(checkpoint), 'status': 'complete', 'cached': cached,
-            **{k: state[k] for k in ('file', 'sha256', 'source_url', 'provenance', 'text_version', 'verification', 'access_policy', 'pmid', 'record', 'download_route', 'rejected_files', 'http_diagnostics') if k in state}}
+            **{k: state[k] for k in ('file', 'sha256', 'source_url', 'provenance', 'text_version', 'verification', 'manual_identity', 'access_policy', 'pmid', 'record', 'download_route', 'rejected_files', 'http_diagnostics') if k in state}}
 
 
 def resume_download(checkpoint, dest, author='', retry=False, name=''):

@@ -4,6 +4,8 @@
 >
 > **此提示随 Windows 和 macOS 两个包分发。Windows 当前通过 Playwright 扩展操作网页，系统保存窗口由用户处理。请审慎判断所用 Agent/Harness 请求的任何额外系统控制权限。**
 
+当前源码为 `2.0.0-beta.4.fix.1` 开发修复版，处理 9 月 14 日 PubMed 测试发现的传输、人工核验、免费状态判定、JAMA 跳转、接口任务隔离与题录对账问题。尚未另行公开发布，见[验证记录](VERIFICATION.md)。
+
 **2.0.0-beta.4 预发布版**加入 PubMed 官方接口检索与 PMC 优先下载，修复不完整 PDF 误报成功和损坏缓存复用。macOS 的 Skill 流程仅使用 Apple Events；Windows 使用 Playwright 官方扩展，并在连接前提供 Token。查看器自动保存受阻后，由用户选择仅题录或保留标签页批量手动下载。两个平台包均不捆绑运行环境。请先阅读[发布说明](RELEASE_NOTES.md)、[Windows 安装](references/install-windows.md)、[macOS 安装](references/install-macos.md)及[验证记录](VERIFICATION.md)。
 
 

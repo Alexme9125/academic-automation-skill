@@ -4,6 +4,8 @@
 >
 > **This notice ships in both Windows and macOS packages. Windows currently uses the Playwright extension for webpages and leaves system Save dialogs to the user. Assess any additional system-control permissions requested by your Agent/Harness carefully.**
 
+Current source: `2.0.0-beta.4.fix.1` development fixes for the September 14 PubMed test: shared resumable transfers, auditable manual identity review, unknown-access pauses, JAMA redirects, independent API tasks and bibliography reconciliation. This build is not a new public release; see [verification](VERIFICATION.md).
+
 **2.0.0-beta.4 pre-release** adds PubMed API search and PMC-first downloads, rejects incomplete PDFs, and rechecks damaged cached files. Skill workflows use Apple Events only on macOS; Windows uses the official Playwright extension and requires a Token before connecting. If a PDF viewer cannot save automatically, the Agent asks whether to deliver bibliography only or retain tabs for manual downloading. Neither platform package bundles runtimes. Read the [release notes](RELEASE_NOTES.md), [Windows installation](references/install-windows.md), [macOS installation](references/install-macos.md), and [verification record](VERIFICATION.md).
 
 

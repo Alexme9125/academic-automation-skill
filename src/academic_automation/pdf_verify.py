@@ -2,6 +2,9 @@
 import importlib.util
 import re
 import unicodedata
+import hashlib
+import json
+from pathlib import Path
 
 from .errors import BrowserError
 
@@ -19,9 +22,23 @@ def norm(text):
     return re.sub(r'[^\w]', '', unicodedata.normalize('NFKC', text or '')).casefold()
 
 
-def verify(path, record):
+def identity_key(record):
+    return hashlib.sha256(json.dumps({k: record.get(k) for k in
+        ('pmid', 'doi', 'title', 'authors', 'first_author', 'first_author_family')},
+        ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def approval_matches(path, record, manual):
+    return bool(manual and manual.get('sha256') == hashlib.sha256(Path(path).read_bytes()).hexdigest()
+                and manual.get('identity_key') == identity_key(record) and manual.get('note') and manual.get('pending_id'))
+
+
+def verify(path, record, manual=None):
     base = {'content_verified': False, 'pages': None, 'warning': WARNING}
     if not available():
+        if approval_matches(path, record, manual):
+            return dict(base, status='manually_verified', manually_verified=True, pages=manual.get('pages'),
+                        warning='本轮未安装 pypdf，未重新解析；文件摘要与此前人工确认记录一致，保留人工核验状态。')
         return dict(base, status='unverified', reason='pypdf_not_installed')
     try:
         from pypdf import PdfReader
@@ -57,6 +74,21 @@ def verify(path, record):
                     warning='PDF 可解析，但缺少可靠题名或作者用于比对，正文身份尚未核验。')
     title_match, author_match = title in norm(text), family in norm(text)
     if not title_match or not author_match:
+        # A known glyph extraction difference is evidence for review, not an
+        # automatic title match. Never equate arbitrary Latin/Greek letters.
+        glyph_review = (not title_match and author_match and len(title) >= 20 and 'β' in title
+                        and any(title.replace('β', replacement) in norm(text) for replacement in ('b', 'beta')))
+        if glyph_review:
+            if approval_matches(path, record, manual):
+                return dict(base, status='manually_verified', manually_verified=True,
+                            title_verified=False, first_author_verified=True,
+                            warning='自动题名比对仍有字形差异；用户已核对并确认此摘要对应的文件，计为人工核验。')
+            raise BrowserError('PDF_IDENTITY_REVIEW: a possible beta glyph extraction difference needs human review', 2,
+                {'kind': 'identity_review', 'verification': dict(base, status='needs_review',
+                    reason='possible_beta_glyph_difference', title_verified=False, first_author_verified=True,
+                    doi_verified=bool(record.get('doi') and norm(record['doi']) in norm(text)),
+                    expected_title=record.get('title'), extracted_excerpt=text[:700],
+                    warning='文件可解析，但 β 字形提取差异可能造成题名误报；请核对首页、作者和 DOI，再确认或提供正确文件。')})
         raise BrowserError('PDF_IDENTITY_MISMATCH: inspect the first-page title and author before archiving', 2,
                            {'verification': dict(base, status='mismatch', title_verified=title_match, first_author_verified=author_match)})
     return {'status': 'verified', 'content_verified': True, 'title_verified': True,

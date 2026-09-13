@@ -15,6 +15,18 @@ from .errors import BrowserError
 from .paths import state_dir
 
 _task = ContextVar('academic_task', default=None)
+_pending_key = ContextVar('academic_pending_key', default=None)
+
+
+def api_only(args):
+    return args.command in ('search', 'metadata') and getattr(args, 'source', '') == 'pubmed'
+
+
+@contextmanager
+def pending_scope(key):
+    token = _pending_key.set(key)
+    try: yield
+    finally: _pending_key.reset(token)
 
 
 def require_task():
@@ -32,7 +44,19 @@ def _scope(key):
 
 
 def path():
+    if _pending_key.get(): return state_dir() / 'api-pending' / (_pending_key.get() + '.json')
     return state_dir() / 'pending-user.json'
+
+
+def api_pending():
+    from .browser_runtime import read_json
+    return [read_json(p) for p in sorted((state_dir() / 'api-pending').glob('*.json'))]
+
+
+def pending_for_id(ident):
+    pending = read()
+    if pending and pending['id'] == ident: return pending
+    return next((p for p in api_pending() if p and p.get('id') == ident), None)
 
 
 def read():
@@ -58,7 +82,8 @@ def action(args):
     values = {k: v for k, v in vars(args).items() if k not in
               ('json', 'backend', 'session', 'downloads_dir', 'retry', 'refresh', 'refresh_index', 'access_policy')}
     # New optional interface fields must not invalidate existing Beta 3 handoffs.
-    for key, default in (('free_full_text', False), ('sort', 'relevance')):
+    for key, default in (('free_full_text', False), ('sort', 'relevance'), ('progress', None),
+                         ('confirm_identity', False), ('pending_id', None), ('sha256', None), ('note', None)):
         if values.get(key) == default: values.pop(key, None)
     if args.command in ('metadata', 'batch') and values.get('source') == 'cnki':
         values.pop('source', None)
@@ -67,16 +92,33 @@ def action(args):
     for key in ('input', 'output', 'dest', 'file', 'checkpoint', 'meta_script', 'index'):
         if values.get(key):
             values[key] = str(Path(values[key]).resolve())
-    values.update(backend=backend_name(), session=session_name())
+    if api_only(args):
+        values.pop('meta_script', None)
+        values['transport'] = 'pubmed-data'
+    else: values.update(backend=backend_name(), session=session_name())
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
 def details(pending=None):
     pending = pending or read()
+    kind = pending.get('details', {}).get('kind')
+    if kind in ('access_unknown', 'identity_review'):
+        message = ('Keep this article pending. Ask the user to inspect article-level free-access evidence, '
+                   'or choose bibliography, skip or replacement. Missing free evidence is not a subscription finding.'
+                   if kind == 'access_unknown' else
+                   'Review the saved PDF title, authors and DOI with the user. After an actual confirmation use '
+                   'archive --confirm-identity with this pending id, candidate SHA-256 and --note containing the reply. '
+                   'Do not use skip or disable verification to mark it archived.')
+        return {'pending': pending, 'wait_for_user': True, 'may_continue_browser': False, 'next_action': message}
     if pending.get('details', {}).get('kind') == 'access_policy':
         return {'pending': pending, 'wait_for_user': True, 'may_continue_browser': False,
                 'next_action': 'Ask whether to include subscription articles. If declined, ask whether to exclude them or keep bibliography. '
                                'WAIT for the actual reply, then browser resolve --decision retry --access-policy <choice> --note <reply>.'}
+    if 'NEED_CONNECTION' in pending.get('message', ''):
+        return {'pending': pending, 'wait_for_user': True, 'may_continue_browser': False,
+                'next_action': 'Wait for the actual user reply. Then browser resolve --decision retry, '
+                               'browser connect to bind the current article tab, then repeat resume_argv. '
+                               'Retry alone does not repair a stale tab binding.'}
     return {'pending': pending, 'wait_for_user': True, 'may_continue_browser': False,
             'next_action': 'Ask the user to handle the current page and WAIT for their reply. '
                            'Do not mark this article unavailable or navigate to another article. '
@@ -89,6 +131,15 @@ def blocked(pending):
 
 
 def resolve(pending_id, decision, note, access_policy=None, pmc_version=None):
+    from .browser_runtime import read_json
+    pending = pending_for_id(pending_id)
+    if not pending and pending_id and len(pending_id) == 32 and all(c in '0123456789abcdef' for c in pending_id):
+        pending = read_json(state_dir() / 'user-decisions' / (pending_id + '.json'), {})
+    key = pending['action'] if pending and pending.get('channel') == 'pubmed-data' else None
+    with pending_scope(key): return _resolve(pending_id, decision, note, access_policy, pmc_version)
+
+
+def _resolve(pending_id, decision, note, access_policy=None, pmc_version=None):
     pending = read()
     if not pending and pending_id and all(c in '0123456789abcdef' for c in pending_id) and len(pending_id) == 32:
         saved = state_dir() / 'user-decisions' / (pending_id + '.json')
@@ -158,6 +209,7 @@ def run(key, argv, callback, recover=None):
                  'action': key, 'resume_argv': list(argv), 'message': str(exc),
                  'checkpoint': exc.details.get('checkpoint', ''),
                  'details': exc.details, 'user_confirmed': False, 'time': time.time()}
+        if _pending_key.get(): state['channel'] = 'pubmed-data'
         from . import access
         policy = exc.details.get('access_policy') or access.current() or (pending or {}).get('access_policy')
         if policy: state['access_policy'] = policy
@@ -169,6 +221,28 @@ def run(key, argv, callback, recover=None):
 
 
 def execute(args, argv, callback):
+    if api_only(args):
+        key = action(args)
+        # Preserve an API handoff created by Beta 4's global pending mechanism.
+        old = read()
+        if old and not old.get('channel'):
+            from .cli import parser
+            try:
+                previous = parser().parse_args(old['resume_argv'][2:])
+                migrate = api_only(previous) and action(previous) == key
+            except (KeyError, BrowserError): migrate = False
+            if migrate:
+                with pending_scope(key):
+                    old.update(action=key, channel='pubmed-data'); write(old)
+                    if old.get('user_confirmed') and old.get('access_policy'):
+                        from . import access
+                        access.save(key, old['access_policy'])
+                clear()
+        with pending_scope(key): return _execute(args, argv, callback)
+    return _execute(args, argv, callback)
+
+
+def _execute(args, argv, callback):
     from . import access
     key = action(args)
     def recover(pending):

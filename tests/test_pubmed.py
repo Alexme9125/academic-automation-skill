@@ -18,7 +18,7 @@ from pdf_fixture import PDF
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
-from academic_automation import access, cli, cnki, ncbi, pmc, pubmed, pdf_verify, publisher, interaction, browser_runtime as br
+from academic_automation import access, cli, cnki, ncbi, pmc, pubmed, pdf_verify, publisher, interaction, http_pdf, browser_runtime as br
 from academic_automation.errors import BrowserError
 
 
@@ -169,10 +169,10 @@ class PubMedTests(unittest.TestCase):
 
     def test_pmc_html_and_checksum_failure_are_not_archived(self):
         version = pmc.select(self.record(), [self.version()]); path = self.root/'a.pdf'
-        with patch.object(ncbi, 'get', return_value=b'<html>challenge</html>'):
+        with patch.object(http_pdf, 'urlopen', return_value=io.BytesIO(b'<html>challenge</html>')):
             self.assertFalse(pmc.retrieve(version, path)); self.assertFalse(path.exists())
         version['md5'] = 'bad'
-        with patch.object(ncbi, 'get', return_value=b'%PDF-1.4 data'):
+        with patch.object(http_pdf, 'urlopen', side_effect=lambda *a, **k: io.BytesIO(b'%PDF-1.4 data')), patch.object(http_pdf.time, 'sleep'):
             with self.assertRaises(BrowserError) as error: pmc.retrieve(version, path)
         self.assertEqual(error.exception.code, 70)
 
@@ -293,11 +293,14 @@ class PubMedTests(unittest.TestCase):
             dest = self.root/policy; cp = dest/'.academic-downloads/a.json'; cp.parent.mkdir(parents=True)
             candidate = self.root/'capture.pdf'; candidate.write_bytes(PDF)
             with access.scope(policy), patch.object(br, 'read_js', side_effect=['{}', '{}', 'false']), patch.object(br, 'navigate'), patch.object(br, 'wait_ready'), patch.object(br, 'run_file', return_value='PDF@@https://x.org/main.pdf'), patch.object(publisher, 'direct_pdf', return_value=False), patch.object(capture, 'publisher_control', return_value='a'), patch.object(capture, 'capture', return_value=candidate) as click:
-                result = publisher.article('https://x.org/article', '10.1234/a', dest, 'a.pdf', cp, {})
-            if policy == 'all': self.assertEqual(result['status'], 'complete'); click.assert_called_once()
-            else:
-                self.assertEqual(result['status'], 'excluded' if policy == 'free-only' else 'metadata_only')
-                self.assertEqual(result['access'], 'unknown'); click.assert_not_called()
+                if policy == 'all':
+                    result = publisher.article('https://x.org/article', '10.1234/a', dest, 'a.pdf', cp, {})
+                    self.assertEqual(result['status'], 'complete'); click.assert_called_once()
+                else:
+                    with self.assertRaises(BrowserError) as error:
+                        publisher.article('https://x.org/article', '10.1234/a', dest, 'a.pdf', cp, {})
+                    self.assertEqual(error.exception.code, 2)
+                    self.assertEqual(error.exception.details['access'], 'unknown'); click.assert_not_called()
 
     def test_manual_archive_uses_same_pubmed_identity_checks(self):
         dest = self.root/'out'; cp = dest/'.academic-downloads/a.json'; path = self.root/'manual.pdf'; path.write_bytes(PDF)

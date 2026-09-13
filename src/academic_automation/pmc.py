@@ -1,5 +1,4 @@
 """Article-scoped access to the current public PMC cloud dataset."""
-import hashlib
 import json
 import xml.etree.ElementTree as ET
 from urllib.parse import quote, urlencode, urlparse, parse_qs
@@ -72,13 +71,10 @@ def select(record, rows, selected=None):
 
 
 def retrieve(version, path):
-    try:
-        raw = ncbi.get(version['https_url'])
-    except BrowserError as exc:
-        if exc.details.get('http_status') in (403, 404, 410): return False
-        raise
-    if not raw.startswith(b'%PDF-'): return False
-    if version.get('md5') and hashlib.md5(raw).hexdigest() != version['md5']:
-        raise BrowserError('PMC_CHECKSUM_MISMATCH: saved progress; retry later', 70, {'retryable': True})
-    path.write_bytes(raw)
-    return True
+    from .http_pdf import fetch
+    result = fetch(version['https_url'], path, md5=version.get('md5', ''))
+    if result.get('status') == 'complete': return True
+    if result.get('http_status') in (403, 404, 410) or result.get('error') == 'invalid_pdf_format': return False
+    raise BrowserError('PMC_TRANSFER_FAILED: saved partial file and diagnostics; retry this article later', 70,
+                       {k: result[k] for k in ('error', 'http_status', 'received_bytes', 'declared_bytes',
+                        'retryable', 'diagnostics', 'progress', 'part', 'attempt') if k in result})
