@@ -56,7 +56,8 @@ def parser():
     b.add_argument('--access-policy', choices=access.CHOICES)
     b.add_argument('--pmc-version', type=int, help='Only after a human selects one of the pending PMC versions')
     s = sub.add_parser('search'); s.add_argument('source', choices=['cnki', 'cnki-foreign', 'scholar', 'wos', 'pubmed'])
-    s.add_argument('query'); s.add_argument('output'); s.add_argument('--pages', type=int, default=1)
+    s.add_argument('query', nargs='?'); s.add_argument('output'); s.add_argument('--pages', type=int, default=1)
+    s.add_argument('--query-file', help='Read an exact UTF-8 query, avoiding shell quote conversion')
     s.add_argument('--year', default=''); s.add_argument('--oa', action='store_true'); s.add_argument('--refresh', action='store_true')
     s.add_argument('--expert', action='store_true', help='CNKI Chinese: query is an exact expert expression')
     s.add_argument('--access-policy', choices=access.CHOICES)
@@ -74,10 +75,18 @@ def parser():
     o.add_argument('--access-policy', choices=access.CHOICES)
     u = modes.add_parser('pubmed'); u.add_argument('pmid'); u.add_argument('dest'); u.add_argument('--name', default=''); u.add_argument('--retry', action='store_true')
     u.add_argument('--access-policy', choices=access.CHOICES)
+    u.add_argument('--route', choices=['auto', 'pmc-only'], default='auto')
+    u.add_argument('--on-unavailable', choices=['defer', 'bibliography'], default='defer', help='PMC-only: preserve a deferred item or deliver bibliography')
     b = sub.add_parser('batch'); b.add_argument('input'); b.add_argument('--expert', default=''); b.add_argument('--affiliation', default='')
     b.add_argument('--pages', type=int, default=3); b.add_argument('--refresh-index', action='store_true'); b.add_argument('--retry', action='store_true')
     b.add_argument('--source', choices=['cnki', 'pubmed'], default='cnki'); b.add_argument('--dest')
     b.add_argument('--access-policy', choices=access.CHOICES)
+    b.add_argument('--route', choices=['auto', 'pmc-only'], default='auto')
+    b.add_argument('--on-unavailable', choices=['defer', 'bibliography'], default='defer')
+    control = b.add_mutually_exclusive_group()
+    control.add_argument('--cancel', action='store_true', help='Record the actual user request to stop this entire PubMed manifest')
+    control.add_argument('--resume-cancelled', action='store_true', help='Explicitly restart a user-cancelled PubMed batch')
+    b.add_argument('--note', help='Actual user reply authorizing cancellation or restart')
     b = sub.add_parser('bibliography'); b.add_argument('source', choices=['cnki', 'scholar', 'wos', 'pubmed'])
     b.add_argument('input'); b.add_argument('output'); b.add_argument('--title'); b.add_argument('--theme', default='')
     b.add_argument('--progress', help='PubMed batch checkpoint to merge with metadata')
@@ -88,6 +97,22 @@ def parser():
     a.add_argument('--confirm-identity', action='store_true', help='Only after the user reviews a reported glyph ambiguity')
     a.add_argument('--pending-id'); a.add_argument('--sha256'); a.add_argument('--note')
     return p
+
+
+def normalize_args(a):
+    if a.command == 'search':
+        if a.query_file:
+            if a.query is not None:
+                raise BrowserError('Use a positional query OR --query-file, not both', 64)
+            a.query = Path(a.query_file).read_text(encoding='utf-8-sig').strip()
+        if not a.query or not a.query.strip():
+            raise BrowserError('QUERY_REQUIRED: provide query text or --query-file with UTF-8 contents', 64)
+    if a.command == 'batch' and a.source != 'pubmed' and (a.route != 'auto' or a.on_unavailable != 'defer' or a.cancel or a.resume_cancelled or a.note):
+        raise BrowserError('Route and batch control options require --source pubmed', 64)
+    if getattr(a, 'on_unavailable', 'defer') != 'defer' and a.route != 'pmc-only':
+        raise BrowserError('--on-unavailable requires --route pmc-only', 64)
+    if a.command == 'batch' and (a.cancel or a.resume_cancelled) and not (a.note or '').strip():
+        raise BrowserError('Record the actual user reply with --note before cancelling or restarting a batch', 64)
 
 
 def doctor(probe=False):
@@ -140,7 +165,7 @@ def dispatch(a):
         if a.action == 'resolve':
             return interaction.resolve(a.pending_id, a.decision, a.note, a.access_policy, a.pmc_version)
         if a.action == 'status':
-            return {'backend': browser.backend_name(), 'session': browser.session_name(), 'connection': browser.read_session(),
+            return {'backend': browser.backend_name(), 'session': browser.session_name(), 'connection': browser.connection_status(),
                     'pending': interaction.read(),
                     'api_pending': interaction.api_pending(),
                     'note': 'Saved connection metadata; use doctor --browser for a live check'}
@@ -175,12 +200,14 @@ def dispatch(a):
         a.query = a.input; sr.metadata(a)
         return {'output': str(Path(a.output).resolve()), 'records': len(br.read_json(a.output, []))}
     if a.command == 'download':
-        if a.source == 'pubmed': return pubmed.download(a.pmid, a.dest, a.name, a.retry)
+        if a.source == 'pubmed': return pubmed.download(a.pmid, a.dest, a.name, a.retry, a.route, a.on_unavailable)
         if a.source == 'cnki':
             return cnki.download(a.title, a.author, a.dest, a.expert, a.affiliation, a.pages, a.index, a.retry)
         return publisher.download(a.doi, a.dest, a.name, a.retry)
     if a.command == 'batch':
-        if a.source == 'pubmed': return pubmed.batch(a)
+        if a.source == 'pubmed':
+            lock = 'pubmed-batch-' + hashlib.sha256(str(Path(a.input).resolve()).encode()).hexdigest()[:20]
+            with browser.browser_lock(lock): return pubmed.batch(a)
         args = [a.input, '--pages', a.pages]
         for key in ('expert', 'affiliation'):
             if getattr(a, key): args += ['--' + key, getattr(a, key)]
@@ -229,6 +256,7 @@ def main(argv=None):
     code, result = 0, {}
     try:
         a = parser().parse_args(argv)
+        normalize_args(a)
         for key, env in [('backend', 'ACADEMIC_BROWSER_BACKEND'), ('session', 'ACADEMIC_BROWSER_SESSION'), ('downloads_dir', 'CNKI_DOWNLOADS_DIR')]:
             if getattr(a, key): os.environ[env] = getattr(a, key)
         # Validate identity before any browser or lock activity.
@@ -238,15 +266,11 @@ def main(argv=None):
         # Batch child processes acquire their own lock; there is no interactive stdin.
         with contextlib.redirect_stdout(sys.stderr):
             if a.command == 'batch' and a.source == 'pubmed':
-                # A paused child must be resumed by that same child, not blocked by
-                # its parent manifest's identity. Only missing-scope handoffs live here.
-                with browser.browser_lock():
-                    pending = interaction.read()
-                    if not pending or pending['action'] == interaction.action(a):
-                        interaction.execute(a, [sys.executable, str(ROOT / 'scripts/academic.py'), *argv], lambda: {})
-                    else:
-                        access.prepare(a, interaction.action(a))
+                a.resume_argv = [sys.executable, str(ROOT / 'scripts/academic.py'), *argv]
             api_lock = interaction.api_only(a)
+            if a.command == 'archive' and a.checkpoint:
+                api_lock = any(p.get('checkpoint') and Path(p['checkpoint']).resolve() == Path(a.checkpoint).resolve()
+                               for p in interaction.api_pending())
             if a.command == 'browser' and a.action == 'resolve':
                 api_lock = (interaction.pending_for_id(a.pending_id) or {}).get('channel') == 'pubmed-data'
             with browser.browser_lock('pubmed-data' if api_lock else 'browser') if needs_lock else contextlib.nullcontext():

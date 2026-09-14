@@ -19,7 +19,8 @@ _pending_key = ContextVar('academic_pending_key', default=None)
 
 
 def api_only(args):
-    return args.command in ('search', 'metadata') and getattr(args, 'source', '') == 'pubmed'
+    return getattr(args, 'source', '') == 'pubmed' and (args.command in ('search', 'metadata')
+        or args.command in ('download', 'batch') and getattr(args, 'route', 'auto') == 'pmc-only')
 
 
 @contextmanager
@@ -80,14 +81,17 @@ def clear():
 def action(args):
     from .browser import backend_name, session_name
     values = {k: v for k, v in vars(args).items() if k not in
-              ('json', 'backend', 'session', 'downloads_dir', 'retry', 'refresh', 'refresh_index', 'access_policy')}
+              ('json', 'backend', 'session', 'downloads_dir', 'retry', 'refresh', 'refresh_index', 'access_policy', 'query_file', 'resume_argv')}
     # New optional interface fields must not invalidate existing Beta 3 handoffs.
     for key, default in (('free_full_text', False), ('sort', 'relevance'), ('progress', None),
-                         ('confirm_identity', False), ('pending_id', None), ('sha256', None), ('note', None)):
+                         ('confirm_identity', False), ('pending_id', None), ('sha256', None), ('note', None),
+                         ('route', 'auto'), ('on_unavailable', 'defer'), ('cancel', False), ('resume_cancelled', False)):
         if values.get(key) == default: values.pop(key, None)
     if args.command in ('metadata', 'batch') and values.get('source') == 'cnki':
         values.pop('source', None)
     if args.command == 'batch' and values.get('dest') is None: values.pop('dest', None)
+    if args.command == 'batch':
+        for key in ('cancel', 'resume_cancelled', 'note'): values.pop(key, None)
     if args.command == 'doctor': values.pop('capability', None)
     for key in ('input', 'output', 'dest', 'file', 'checkpoint', 'meta_script', 'index'):
         if values.get(key):
@@ -221,10 +225,22 @@ def run(key, argv, callback, recover=None):
 
 
 def execute(args, argv, callback):
+    if args.command == 'download' and args.source == 'pubmed':
+        for pending in [read(), *api_pending()]:
+            if pending and matches_download(pending, args.pmid, args.dest) and pending['action'] != action(args):
+                blocked(pending)
+    if args.command == 'archive' and args.checkpoint:
+        match = next((p for p in api_pending() if p.get('checkpoint') and
+                      Path(p['checkpoint']).resolve() == Path(args.checkpoint).resolve()), None)
+        if match:
+            with pending_scope(match['action']): return _execute(args, argv, callback)
     if api_only(args):
         key = action(args)
         # Preserve an API handoff created by Beta 4's global pending mechanism.
         old = read()
+        # A different transport must never evade a pause on the same article.
+        if old and args.command == 'download' and matches_download(old, args.pmid, args.dest):
+            blocked(old)
         if old and not old.get('channel'):
             from .cli import parser
             try:
@@ -240,6 +256,17 @@ def execute(args, argv, callback):
                 clear()
         with pending_scope(key): return _execute(args, argv, callback)
     return _execute(args, argv, callback)
+
+
+def matches_download(pending, ident, dest):
+    from .pubmed import pmid
+    argv = pending.get('resume_argv', [])
+    try:
+        index = argv.index('download')
+        return (argv[index + 1] == 'pubmed' and pmid(argv[index + 2]) == pmid(ident)
+                and Path(argv[index + 3]).resolve() == Path(dest).resolve())
+    except (ValueError, IndexError, BrowserError):
+        return False
 
 
 def _execute(args, argv, callback):

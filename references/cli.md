@@ -176,3 +176,11 @@ python3 scripts/academic.py archive "文献目录" --file "下载目录/实际�
 `needs_user` 不是成功；有部分题录也不能汇报为全部完成。旧 macOS 命令保留入口，但新 Agent 应只使用统一 CLI；不依赖旧 shell 日志作为协议。
 
 PubMed 下载的 `result.verification.content_verified` 表示首页题名作者检查结果；`result.path` 表示已经归档，两者必须分别统计。未安装 pypdf、解析或文字提取失败时仍可归档，会附带 `verification.warning`；最终必须向用户说明用途、安装方法和可能遗漏的问题。已知身份不符返回 2，不归入正文成功。批量的 `summary.archived`、`summary.content_verified` 和 `pdf_verification_note` 用于最终汇报。
+
+## RC1 的查询文件与批次控制
+
+Windows 的复杂检索式推荐 `search pubmed results.json --query-file query.txt`，文件为 UTF-8，可含 BOM；原有 `search pubmed "查询" results.json` 继续兼容。相同文件内容与直接查询使用同一任务身份；修改查询内容属于新查询，不能替换已有待确认任务的原查询。
+
+PubMed 下载和批量支持 `--route pmc-only`，无正文默认暂缓；用户预先选择保留题录时加 `--on-unavailable bibliography`。整批停止使用 `batch 清单 --source pubmed --dest 目录 --cancel --note "实际回复"`，明确恢复使用 `--resume-cancelled --note "实际回复"`。多清单分别处理。模式边界、完整示例和统计口径见 [PubMed 批次控制](pubmed.md#仅-pmc-与整批取消)。
+
+`browser status` 不发起浏览器连接。`connection.usable=false` 且 `verification_status=invalid_page` 表示保存的是扩展内部页等无效目标；普通网页的旧记录为 `usable=null`、`unverified`，需 `doctor --browser` 实测。Token 是否存在、连接是否仍活着、文件能否下载是三个不同结论。

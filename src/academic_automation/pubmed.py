@@ -155,7 +155,17 @@ def metadata(input_path, output, refresh=False):
     return publish()
 
 
-def download(value, dest, name='', retry=False):
+def download(value, dest, name='', retry=False, route='auto', on_unavailable='defer'):
+    interaction.require_task()
+    from .browser import browser_lock
+    key = hashlib.sha256((pmid(value) + '\0' + str(Path(dest).resolve())).encode()).hexdigest()[:24]
+    # Browser and pure-data tasks have separate transport locks, but must not
+    # race to download the same article into the same destination.
+    with browser_lock('pubmed-article-' + key):
+        return _download(value, dest, name, retry, route, on_unavailable)
+
+
+def _download(value, dest, name='', retry=False, route='auto', on_unavailable='defer'):
     interaction.require_task()
     from .cnki import pending_path, resume_download, finish_download
     from . import publisher
@@ -164,12 +174,14 @@ def download(value, dest, name='', retry=False):
     name = dw.safe_name(name or 'PMID-' + ident + '.pdf')
     if not name.lower().endswith('.pdf'): name += '.pdf'
     if len(name.encode('utf-8')) > 180: raise BrowserError('Choose a shorter --name (at most 180 UTF-8 bytes)', 64)
-    key = hashlib.sha256(('pubmed\0' + ident + '\0' + str(Path(dest).resolve()) + '\0' + name).encode()).hexdigest()
+    key = hashlib.sha256(('pubmed\0' + ident + '\0' + str(Path(dest).resolve()) + '\0' + name
+                         + ('\0pmc-only' if route == 'pmc-only' else '')).encode()).hexdigest()
     cp = pending_path(dest, key)
     done = resume_download(cp, dest, retry=retry, name=name)
     if done: return done
     state = br.read_json(cp, {'source': 'pubmed', 'pmid': ident, 'phase': 'pmc', 'name': name})
     state['access_policy'] = access.current()
+    state.update(route=route, on_unavailable=on_unavailable)
     record = state.get('record')
     if not record:
         record = parse_records(ncbi.fetch([ident])).get(ident)
@@ -201,6 +213,15 @@ def download(value, dest, name='', retry=False):
                     return finish_download(path, dest, cp, state, name)
                 state['pmc_result'] = 'official_pdf_unavailable_or_invalid'
             else: state['pmc_result'] = 'no_distributable_main_pdf'
+        if route == 'pmc-only':
+            result = {'status': 'metadata_only' if on_unavailable == 'bibliography' else 'deferred',
+                      'reason': state.get('pmc_result', 'no_pmc_identifier'),
+                      'access': record.get('access', 'unknown'), 'download_route': 'pmc_only',
+                      'route': route, 'on_unavailable': on_unavailable, 'access_policy': access.current(),
+                      'pmid': ident, 'record': record, 'checkpoint': str(cp),
+                      'note': 'No distributable PMC body PDF; publisher not attempted by the selected route. This is not a paywall finding.'}
+            state.update(result); br.atomic_json(cp, state)
+            return result
         state['phase'] = 'publisher'; br.atomic_json(cp, state)
         links = [x for x in record['full_text_links'] if urlparse(x['url']).hostname not in
                  ('pmc.ncbi.nlm.nih.gov', 'www.ncbi.nlm.nih.gov', 'europepmc.org')]
@@ -221,13 +242,16 @@ def download(value, dest, name='', retry=False):
 
 
 def summary(records, ids):
+    ids = list(dict.fromkeys(ids))
     selected = [records.get(i, {}) for i in ids]
     from .pdf_verify import WARNING
     archived = [x for x in selected if x.get('code', 0) == 0 and x.get('status') == 'complete' and x.get('path')]
     return {'total': len(ids), 'archived': len(archived),
             'content_verified': sum(bool(x.get('verification', {}).get('content_verified')) for x in archived),
             'manually_verified': sum(bool(x.get('verification', {}).get('manually_verified')) for x in archived),
-            'pending': sum(not x or x.get('code') in (2, 70, 75) for x in selected),
+            'pending': sum(not x.get('status') and not x.get('code') or x.get('code') in (2, 70, 75) for x in selected),
+            'deferred': sum(x.get('status') == 'deferred' for x in selected),
+            'cancelled_by_user': sum(x.get('reason') == 'batch_cancelled_by_user' for x in selected),
             'metadata_only': sum(x.get('status') == 'metadata_only' for x in selected),
             'excluded': sum(x.get('status') == 'excluded' for x in selected),
             'skipped_by_user': sum(x.get('code') == 6 for x in selected),
@@ -238,11 +262,58 @@ def summary(records, ids):
             else 'Automatic and user-confirmed manual identity checks are counted separately; page count alone is not identity proof.'}
 
 
+def control_batch(args, state, ids, cp):
+    """Persist the whole manifest decision before resolving any affected child."""
+    if args.resume_cancelled:
+        if state.get('cancellation'):
+            # Restart only decisions made by this batch cancellation; earlier
+            # single-article skips remain in force.
+            for handoff in state.get('cancelled_handoffs', []):
+                marker = interaction.state_dir() / 'skipped-actions' / (handoff['action'] + '.json')
+                if br.read_json(marker, {}).get('id') == handoff['id']: marker.unlink()
+            state.pop('cancellation')
+            state.pop('cancelled_handoffs', None)
+            state.setdefault('control_history', []).append({'decision': 'resume', 'note': args.note})
+            state['records'] = {i: r for i, r in state['records'].items() if r.get('reason') != 'batch_cancelled_by_user'}
+            br.atomic_json(cp, state)
+    if args.cancel:
+        state['cancellation'] = {'decision': 'bibliography_only', 'note': args.note, 'pmids': ids}
+        state.setdefault('control_history', []).append(dict(state['cancellation']))
+    if not state.get('cancellation'): return False
+    for ident in ids:
+        row = state['records'].get(ident, {})
+        if (row.get('status') == 'complete' and row.get('path') or row.get('code') == 6
+                or row.get('status') == 'excluded'):
+            continue
+        state['records'][ident] = {'status': 'metadata_only', 'code': 0, 'pmid': ident,
+                                  'reason': 'batch_cancelled_by_user', 'user_decision': {
+                                      k: state['cancellation'][k] for k in ('decision', 'note')},
+                                  'record': state['metadata'].get(ident, {})}
+    br.atomic_json(cp, state)
+    # A note about cancelling another task is never permission to clear it.
+    # Only --cancel with an actual reply can resolve matching article handoffs.
+    if args.cancel:
+        from .browser import browser_lock
+        for lock, scoped in [('browser', False), ('pubmed-data', True)]:
+            with browser_lock(lock):
+                pendings = interaction.api_pending() if scoped else [interaction.read()]
+                for pending in pendings:
+                    if pending and (pending['action'] == interaction.action(args) or any(
+                            interaction.matches_download(pending, i, args.dest) for i in ids)):
+                        state.setdefault('cancelled_handoffs', []).append({'id': pending['id'], 'action': pending['action']})
+                        br.atomic_json(cp, state)
+                        interaction.resolve(pending['id'], 'skip', args.note)
+    return True
+
+
 def batch(args):
     ids, _ = inputs(args.input)
     if not args.dest: raise BrowserError('PubMed batch requires --dest', 64)
     cp = str(args.input) + '.batch-progress.json'
     state = br.read_json(cp, {'records': {}})
+    if state.get('dest') and state['dest'] != str(Path(args.dest).resolve()):
+        raise BrowserError('BATCH_DEST_CHANGED: use a separate manifest for a different destination', 64)
+    state['dest'] = str(Path(args.dest).resolve())
     # Metadata survives terminal/failed child responses that contain no record.
     catalog = state.setdefault('metadata', {})
     manifest = br.read_json(args.input)
@@ -253,7 +324,9 @@ def batch(args):
                 catalog.setdefault(ident, {}).update({k: v for k, v in row.items() if v not in ('', None)})
     for ident, result in state['records'].items():
         if result.get('record'): catalog.setdefault(ident, {}).update(result['record'])
-    state.update(initial_pmids=state.get('initial_pmids', ids), requested_pmids=ids, access_policy=args.access_policy)
+    state.update(initial_pmids=state.get('initial_pmids', ids), requested_pmids=ids,
+                 access_policy=args.access_policy or state.get('access_policy'), route=args.route,
+                 on_unavailable=args.on_unavailable)
     state['manifest_changes'] = {'added_pmids': [i for i in ids if i not in state['initial_pmids']],
                                  'removed_pmids': [i for i in state['initial_pmids'] if i not in ids]}
     # Child commands own the lock and the human handoff. Reordering is safe because
@@ -263,9 +336,23 @@ def batch(args):
         state['rows'] = [dict(catalog.get(i, {'pmid': i, 'title': ''}),
                              **{k: v for k, v in state['records'].get(i, {}).items() if k != 'record'}) for i in ids]
         br.atomic_json(cp, state)
+    if control_batch(args, state, ids, cp):
+        publish()
+        return {'status': 'cancelled_by_user', 'checkpoint': str(cp), **state['summary']}
+    # Child commands own their browser/data locks. Scope confirmation belongs
+    # to the parent only when the manifest has not yet supplied a policy.
+    from .browser import browser_lock
+    with browser_lock('pubmed-data' if interaction.api_only(args) else 'browser'):
+        pending = interaction.read()
+        if interaction.api_only(args) or not pending or pending['action'] == interaction.action(args):
+            interaction.execute(args, args.resume_argv, lambda: {})
+        else:
+            access.prepare(args, interaction.action(args))
+    state['access_policy'] = args.access_policy
     publish()
     order = list(ids)
-    pending = interaction.read()
+    pending = interaction.read() if args.route != 'pmc-only' else next((p for p in interaction.api_pending()
+        if any(interaction.matches_download(p, ident, args.dest) for ident in ids)), None)
     if pending:
         argv = pending['resume_argv']
         try:
@@ -277,6 +364,7 @@ def batch(args):
     for ident in order:
         cmd = [sys.executable, str(ROOT / 'scripts/academic.py'), '--json', 'download', 'pubmed', ident,
                args.dest, '--access-policy', args.access_policy]
+        if args.route != 'auto': cmd += ['--route', args.route, '--on-unavailable', args.on_unavailable]
         if args.retry: cmd.append('--retry')
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=600)
@@ -309,11 +397,14 @@ def bibliography(input_path, output, title=None, progress=None):
         catalog = dict(state.get('metadata', {}))
         for r in data['rows']: catalog.setdefault(pmid(r['pmid']), {}).update(r)
         rows = []
-        for ident in state.get('requested_pmids', [r['pmid'] for r in data['rows']]):
+        # The input is the full delivery manifest; a PMC subset checkpoint must
+        # not silently remove non-PMC bibliography rows from that manifest.
+        for ident in dict.fromkeys([pmid(r['pmid']) for r in data['rows']] + state.get('requested_pmids', [])):
             result = state['records'].get(ident, {})
             record = {**result.get('record', {}), **catalog.get(ident, {}), 'pmid': ident}
             rows.append({**record, **{k: v for k, v in result.items() if k != 'record'}})
         data = {**data, 'rows': rows, 'access_policy': state.get('access_policy', data.get('access_policy'))}
+    data['rows'] = list({pmid(r['pmid']): r for r in data['rows']}.values())
     discrepancies = []
     for r in data['rows']:
         if not r.get('title'): discrepancies.append({'pmid': r['pmid'], 'reason': 'missing_metadata'})
@@ -327,7 +418,7 @@ def bibliography(input_path, output, title=None, progress=None):
     lines = ['# ' + (title or 'PubMed 文献目录'), '', '范围选择：' + str(data.get('access_policy') or '未记录'), '']
     totals = summary({r['pmid']: r for r in data['rows']}, [r['pmid'] for r in data['rows']])
     if progress or any('status' in r for r in data['rows']):
-        lines += ['交付核对：已归档 {archived}；正文自动核验 {content_verified}；人工核验 {manually_verified}；待处理 {pending}；用户跳过 {skipped_by_user}。'.format(**totals), '']
+        lines += ['交付核对：共 {total}；已归档 {archived}；正文自动核验 {content_verified}；人工核验 {manually_verified}；待处理 {pending}；暂缓 {deferred}；仅题录 {metadata_only}（其中批次取消 {cancelled_by_user}）；用户跳过 {skipped_by_user}；排除 {excluded}；失败 {failed}。'.format(**totals), '']
     if discrepancies: lines += ['对账异常：' + '; '.join(x['pmid'] + ' ' + x['reason'] for x in discrepancies), '']
     for number, r in enumerate(data['rows'], 1):
         ident = pmid(r['pmid'])

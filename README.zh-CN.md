@@ -1,15 +1,14 @@
 # Academic Automation Skill
 
+[English](README.md) | **简体中文**
+
 > **重要权限与安全提示：本 Skill 会让 Agent/Harness 在执行 macOS 界面自动化及 PDF 原生保存时，向你索要系统无障碍（辅助功能）权限，以及控制 Chrome / System Events 的自动化权限。无障碍权限允许应用控制系统界面，授权范围不限于单个网页。若有任何安全顾虑，请勿使用本 Skill，也不要授予相关权限。**
 >
 > **此提示随 Windows 和 macOS 两个包分发。Windows 当前通过 Playwright 扩展操作网页，系统保存窗口由用户处理。请审慎判断所用 Agent/Harness 请求的任何额外系统控制权限。**
 
-当前源码为 `2.0.0-beta.4.fix.1` 开发修复版，处理 9 月 14 日 PubMed 测试发现的传输、人工核验、免费状态判定、JAMA 跳转、接口任务隔离与题录对账问题。尚未另行公开发布，见[验证记录](VERIFICATION.md)。
+**2.0.0 RC1 候选版**已纳入 Beta 4 后的 PubMed 传输与正文核验修复，新增仅 PMC 下载模式、整批取消与 Windows 查询文件入口。详细变化见[发布说明](RELEASE_NOTES.md)，实测范围见[验证记录](VERIFICATION.md)。
 
-**2.0.0-beta.4 预发布版**加入 PubMed 官方接口检索与 PMC 优先下载，修复不完整 PDF 误报成功和损坏缓存复用。macOS 的 Skill 流程仅使用 Apple Events；Windows 使用 Playwright 官方扩展，并在连接前提供 Token。查看器自动保存受阻后，由用户选择仅题录或保留标签页批量手动下载。两个平台包均不捆绑运行环境。请先阅读[发布说明](RELEASE_NOTES.md)、[Windows 安装](references/install-windows.md)、[macOS 安装](references/install-macos.md)及[验证记录](VERIFICATION.md)。
-
-
-[English](README.md) | **简体中文**
+macOS 浏览器流程**仅使用 Apple Events**；Windows 使用 Playwright 官方扩展，新连接前需提供 Token。纯 PubMed 接口与明确选择的仅 PMC 下载不需要浏览器或扩展。Playwright 查看器自动保存受阻时仍需询问用户如何交付。[Latest Release](https://github.com/Alexme9125/academic-automation-skill/releases/latest) 提供 Windows、macOS，以及 macOS 可选的 [Legacy Version 1](LEGACY.md)。各包不捆绑运行环境，安装前请阅读 [Windows 安装](references/install-windows.md)或 [macOS 安装](references/install-macos.md)。
 
 > 一份 AI Skill，用来自动化学术文献搜索和下载流程。
 
@@ -64,7 +63,7 @@ Academic Automation Skill 本身不提供数据库账户，也不提供订阅、
 
 ### 操作系统
 
-Windows 10/11：通过 Playwright CLI 与官方 Chrome 扩展连接日常浏览器，当前为待实机验收的预览支持。
+Windows 10/11：通过 Playwright CLI 与官方 Chrome 扩展连接日常浏览器。测试者已回报 PubMed 检索、题录和两篇 PMC 下载；RC1 的扩展及出版社流程仍待 Windows 实机验收。
 
 macOS：仅通过 Apple Events 控制 Chrome，原生保存使用 System Events；Skill 不使用 Playwright，也不将其作为故障回退方案。
 

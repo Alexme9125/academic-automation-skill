@@ -30,3 +30,7 @@ Token 用于自动建立扩展连接，随后确认要操作的普通标签；�
 **出现 PDF 查看器后，Playwright 自动保存尚未被证明稳定可用。** 自动获取和目录恢复均无文件时，Agent 必须先询问“仅整理题录”或“保留各篇标签页，由用户批量手动点击下载”，收到实际选择后再调整交付。保留页不得被下一篇覆盖；手动文件仍需核验归档。步骤见[自动保存受阻后的选择](cli.md#自动保存受阻后的选择)。
 
 操作结束运行 `.\academic.cmd browser disconnect`。升级时保留文献目录及其进度文件，替换 Skill 代码后重新执行 `npm.cmd ci --ignore-scripts`。不要将 `node_modules`、Chrome 配置、连接令牌或文献文件上传到仓库。
+
+复杂 PubMed 查询在 Windows PowerShell 5.1 下使用 UTF-8 `--query-file`，见 [查询文件示例](pubmed.md#检索式与-windows-引号)。纯 PMC 任务需显式加 `--route pmc-only`，才能保证不进入浏览器；只按 PMCID 筛选不足以保证这一点。
+
+安装需要访问发布源，并能写入选定 Skill 目录；文献下载需要访问数据源并能写入文献目录。按 Harness 支持的方式授予这些具体权限，不要求统一启用 `danger-full-access` 或关闭审批。安装目录在工作区外时需另行允许该目录写入。

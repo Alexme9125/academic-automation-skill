@@ -58,6 +58,12 @@ def verify(path, record, manual=None):
                     warning='PDF 可解析，但首页文字提取失败，正文题名和作者尚未核验。')
     # A supplement can repeat the article's exact title and author list.
     heading = '\n'.join(text.splitlines()[:12])
+    # A journal may announce a separate supplement on the main article's first
+    # page. Ignore only that complete notice, not arbitrary supplement keywords
+    # or an entire line that might also contain a genuine supplement heading.
+    heading = re.sub(r'(?im)^\s*Electronic\s+supplementary\s+material:\s*'
+                     r'The\s+online\s+version\s+of\s+this\s+article\s+contains\s+'
+                     r'supplementary\s+material\.(?=\s|$)', '', heading)
     if re.search(r'(?im)^\s*(?:electronic\s+)?(?:supplementary|supplemental|supporting)\s+(?:information|material|appendix|data)\b', heading):
         raise BrowserError('PDF_SUPPLEMENT: this file identifies itself as supplementary material', 2,
                            {'verification': dict(base, status='mismatch', reason='supplement_heading')})

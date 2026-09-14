@@ -1,6 +1,43 @@
+# 2.0.0 RC1 发布验证（2026-09-14）
+
+版本 `2.0.0-rc.1`。RC1 纳入上一轮 PubMed 修复，以及 Windows Beta 4 报告中新发现的问题；发布为 Latest，跨平台源码更新到 `main`，原主分支 `cfa54f7828abd6361ba908ff87ccc891aa271255` 保留在 `legacy-version-1`。发布选择与权限提示见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
+
+## 本轮修复与验证
+
+- 正文中的完整“另有补充材料”声明不再触发附录拦截；真实附录与错篇仍暂停。离线覆盖声明换行、真实附录与声明同时出现、题名作者不符等情况。
+- 新增显式仅 PMC 模式及预先选定的暂缓/仅题录处理，独立于浏览器任务。单篇仍按 PMID 与目录串行下载；同一暂停篇不能切换模式绕过确认。
+- 整批取消与明确恢复持久保存，保留此前单篇跳过和已归档结果，取消只处理匹配的待办；清单重排、增加条目以及普通重跑不会意外恢复。
+- Windows 查询文件保留嵌套引号，兼容 UTF-8 BOM；JSON 清单同样处理 BOM。完整候选与 PMC 子集对账不会丢失其余题录，重复 PMID 不重复统计。
+- 状态标记扩展内部页不可用，旧网页记录为未实时验证；修复内嵌 JavaScript 的无效转义告警。
+
+离线回归共 **191 项，190 项通过，1 项隔离 Chrome 测试按配置跳过**，新增 24 项，保留已有 167 项。默认 Python、禁用第三方包的 `-S`，以及安装可选依赖的 Python 3.13.9 检查结果一致。解压 Legacy 包运行原 16 项离线检查全部通过。所有离线用例均不访问网站或账户。
+
+## 真实官方接口复测
+
+以下请求在 macOS 执行，未操作 Chrome，也未解除之前 Wiley 的浏览器待人工状态。
+
+| PMID | 路径和结果 | 核验 |
+|---|---|---|
+| 42693903 | PMC13542801.1 官方 HTTPS；1,835,920 字节 | 13 页；题名与第一作者通过；正常期刊声明不再误报附录 |
+| 41947537 | 现行 PMC 服务无可分发正文；显式 `--route pmc-only` | `deferred`、`no_distributable_main_pdf`；访问状态仍为 unknown，未启动浏览器连接 |
+
+PMID 42693903 SHA-256：`bbb49eb4cad4a436ba7c8a3fe84328bb14ea1bb5869c2ee3f911e2c043e2aa36`。文献及诊断保存于忽略目录 `tmp/rc1-acceptance/`，不进入发布包。
+
+## 包与验收边界
+
+三个 ZIP 使用标准 `cnki-download` 目录结构，校验和统一写入 `SHA256SUMS`。两个 RC1 包的语言链接位于 README 顶部，普通字号加粗的无障碍权限及“有安全顾虑请勿使用”提示保留。Legacy 包保留原主分支 62 个载荷文件的字节内容，另附带权限和安装说明及冻结来源摘要。
+
+三个包已在中文与空格路径解压。macOS RC1 检查实际 `academic.command` 启动、版本、接口 doctor 与查询文件暂停；Windows 包在 macOS 检查共享 Python 入口及相同参数契约，不代表已执行 Windows PowerShell / academic.cmd。Legacy 逐文件 SHA-256 与冻结源码一致，原 16 项检查通过。构建排除依赖目录、浏览器状态、Token、个人任务、文献和缓存。
+
+Windows 测试者报告的 Beta 4 检索、题录与两篇 PMC 下载是此前平台证据。RC1 的 Windows 原生参数传递、扩展连接、出版社保存和各 Harness 行为仍待复测；Wiley 验证仍待用户回复，JAMA 新规则尚未重新完成线上原生保存。候选版的 Latest 标记不扩展这些验收结论。
+
+以下保留此前各阶段记录。
+
+---
+
 # 2026-09-14：PubMed 测试反馈修复构建
 
-当前源码版本 `2.0.0-beta.4.fix.1`，仍在 `codex/cross-platform-browser`。这是 Beta 4 之后的开发修复，尚未另行公开发布或安装覆盖本机 Beta 4。
+当时源码版本 `2.0.0-beta.4.fix.1`，位于 `codex/cross-platform-browser`。这是 Beta 4 之后的开发修复，尚未另行公开发布或安装覆盖本机 Beta 4。
 
 - PMC 与出版社 PDF 共用分块传输、完整性检查、诊断和有界重试；只有强 ETag、范围响应、长度与本地前缀摘要均吻合才续传。NCBI 截断异常和批次子命令失败保持结构化输出与逐篇状态。
 - β 字形提取歧义进入 `identity_review`。实际用户确认需绑定 pending id、文件 SHA-256 和核对备注；统一归档保留人工确认记录，与自动核验分开统计，续跑或再次归档不产生重复文件。明确错篇、附录和损坏文件仍被拦截。
@@ -29,7 +66,7 @@
 - Skill 元数据验证及差异格式检查通过。发布说明在最前面强调无障碍权限的范围和“有安全顾虑请勿使用”，两个包均包含同样的中英文 README 提示。
 - 下文保留不同阶段的实测证据；Oxford 后续 Apple Events 自动保存结果见[原生保存验收](references/macos-pdf-save-acceptance.md)。Windows、其他 Harness、中文保存窗口和批量保留标签页仍待分别验收。
 
-发布功能与限制见[Beta 4 说明](RELEASE_NOTES.md)。本次验证输出保存在忽略目录 `tmp/beta4-release/` 及 `tmp/beta4-*-tests.log`，不随安装包分发。
+发布功能与限制见[Beta 4 说明](https://github.com/Alexme9125/academic-automation-skill/blob/v2.0.0-beta.4/RELEASE_NOTES.md)。本次验证输出保存在忽略目录 `tmp/beta4-release/` 及 `tmp/beta4-*-tests.log`，不随安装包分发。
 
 ## 当前使用规则：macOS 仅 Apple Events
 

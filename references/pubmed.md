@@ -1,6 +1,6 @@
 # PubMed 检索、题录与全文
 
-PubMed 已随 Beta 4 分发；当前源码还包含 `2.0.0-beta.4.fix.1` 开发修复。真实平台与样本结果见 [VERIFICATION.md](../VERIFICATION.md)。先遵守 [Skill 的订阅范围确认](../SKILL.md#对话流程)，已有回答直接沿用。
+PubMed 随 2.0.0 RC1 提供官方接口与 PMC 下载。真实平台与样本结果见 [VERIFICATION.md](../VERIFICATION.md)。先遵守 [Skill 的订阅范围确认](../SKILL.md#对话流程)，已有回答直接沿用。
 
 ## 接口模式
 
@@ -68,3 +68,47 @@ python3 -m pip install -r requirements-pdf.txt
 - [NCBI E-utilities 参数](https://www.ncbi.nlm.nih.gov/books/NBK25499/)：ESearch、EFetch、ELink，限速和返回上限。
 - [PMC 现行公开数据服务](https://pmc.ncbi.nlm.nih.gov/tools/pmcaws/)及[桶内格式说明](https://pmc-oa-opendata.s3.amazonaws.com/README.txt)：HTTPS 匿名访问、版本元数据和正文文件。
 - NCBI 请求串行控制到每秒不超过 3 次，短暂网络错误和限流最多 3 次尝试，退出 70 后原命令续跑；可选 `NCBI_API_KEY`、`NCBI_EMAIL` 只来自环境，不能写入任务输出或发布包。
+
+## 仅 PMC 与整批取消
+
+`free-only` 表示只处理有免费依据的文献，仍可进入免费出版社页面；它不等于只走 PMC。有 PMCID 也不保证公开数据服务提供正文 PDF。用户明确只要 PMC 或不愿连接浏览器时，使用以下模式，不替用户默认缩小范围：
+
+```text
+python3 scripts/academic.py --json batch selected.json --source pubmed --dest papers --route pmc-only
+python3 scripts/academic.py --json batch selected.json --source pubmed --dest papers --route pmc-only --on-unavailable bibliography
+```
+
+单篇 `download pubmed` 接受相同选项。`--route pmc-only` 不进入出版社或浏览器；无公开正文 PDF 时默认记 `deferred`，继续其余篇目。用户事先选择保留题录则用 `--on-unavailable bibliography`，记 `metadata_only`。这两种结果都不能报告成收费、无权限或已下载；实际访问状态仍单独保存。格式损坏、正文身份不符、版本不明确及网络异常继续按原规则暂停，不能自动吞掉错误。
+
+PMC 模式拥有独立检查点与数据任务暂停；其他篇目可在浏览器待人工时执行。已经暂停的同一篇不能换模式、改变参数或换清单逃离确认。`browser status` 的 `api_pending` 同时列出接口与 PMC 待办，按各自 id 处理。自动模式的浏览器暂停仍会阻塞其他浏览器任务。
+
+用户明确要求“全部停，只保留题录”，对本任务每份清单执行取消，`--note` 必须保存真实回复：
+
+```text
+python3 scripts/academic.py --json batch selected.json --source pubmed --dest papers --cancel --note "用户的实际停止回复"
+```
+
+整批取消写入 `<清单>.batch-progress.json`，已归档文件和此前明确跳过的条目保留。取消只解除该清单内匹配的待办，不清除其他任务；普通重跑或清单重排不会自动恢复下载。多份清单需分别取消，不能把取消一个当前篇等同于取消整个任务。用户后来明确要求恢复：
+
+```text
+python3 scripts/academic.py --json batch selected.json --source pubmed --dest papers --resume-cancelled --note "用户的实际恢复回复"
+```
+
+恢复时沿用所需 `--route`、订阅选择及目录；仅撤销本次整批取消产生的跳过，之前独立跳过的篇目继续保留其决定。
+
+最终题录输入使用完整候选元数据，`--progress` 可接仅 PMC 子集的批次检查点；程序合并两者的 PMID，不会删掉子集之外的题录。汇报区分总数、已归档、暂缓、仅题录与用户跳过；取消数量是仅题录中的子项，自动/人工核验数量是已归档中的子项，不能重复相加。
+
+## 检索式与 Windows 引号
+
+复杂查询优先写入 UTF-8 文件（允许 BOM），将查询作为文件内容保留：
+
+```powershell
+@'
+("Mendelian randomization"[TIAB] OR "Mendelian randomisation"[TIAB]) AND (myopia[TIAB] OR glaucoma[TIAB])
+'@ | Set-Content -Encoding UTF8 '.\query.txt'
+py -3 scripts/academic.py --json search pubmed results.json --query-file '.\query.txt' --access-policy free-only
+```
+
+查询文本与 `--query-file` 二选一；空文件会在检索前报错。Windows PowerShell 5.1 和 `.cmd` 会经历旧版原生参数传递，不能把某种引号替换当作所有 Shell 通用规则。[Microsoft 参数说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_parsing?view=powershell-7.5#passing-arguments-that-contain-quote-characters)。
+
+主题检索可先用 `[TIAB]`，检查结果后再收紧 `[Title]` 或补充 MeSH 条件；方法词可保留 `[TIAB]` 和相应发表类型。标题限定可能提高精度，也可能遗漏只在摘要描述相关疾病的研究，须向用户说明取舍。保留原查询、修订查询与实际返回数量，不能由 20 条样本推断整个检索结果都相关。

@@ -95,6 +95,15 @@ def read_session():
         return {}
 
 
+def connection_status():
+    saved = read_session()
+    url = (saved.get('page') or {}).get('url', '')
+    invalid = bool(url and urlsplit(url).scheme not in ('http', 'https'))
+    return {**saved, 'usable': False if invalid or not saved.get('connected') else None,
+            'verification_status': 'invalid_page' if invalid else 'unverified' if saved.get('connected') else 'disconnected',
+            'reason': 'internal_or_non_web_page' if invalid else 'live_probe_required' if saved.get('connected') else 'no_saved_connection'}
+
+
 def save_session(data):
     from .browser_runtime import atomic_json
     atomic_json(session_path(), data)
@@ -231,7 +240,7 @@ class ExtensionBrowser:
 
     def select_pdf_popup(self, expected):
         from .native_save import same_pdf_target
-        pages = self.code('''async page => {
+        pages = self.code(r'''async page => {
           const rows=[]; const pages=page.context().pages();
           // A PDF navigation can detach its opener and leave the CLI focused on
           // its connection page. Recover only inside this attached context and

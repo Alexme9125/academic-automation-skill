@@ -1,15 +1,14 @@
 # Academic Automation Skill
 
+**English** | [简体中文](README.zh-CN.md)
+
 > **IMPORTANT — ACCESSIBILITY PERMISSIONS AND SAFETY: This Skill will have your Agent/Harness request system Accessibility permission, plus automation access to Chrome / System Events, when performing macOS UI automation and native PDF saving. Accessibility permission allows an application to control system UI beyond an individual webpage. If you have any security concerns, DO NOT USE THIS SKILL or grant these permissions.**
 >
 > **This notice ships in both Windows and macOS packages. Windows currently uses the Playwright extension for webpages and leaves system Save dialogs to the user. Assess any additional system-control permissions requested by your Agent/Harness carefully.**
 
-Current source: `2.0.0-beta.4.fix.1` development fixes for the September 14 PubMed test: shared resumable transfers, auditable manual identity review, unknown-access pauses, JAMA redirects, independent API tasks and bibliography reconciliation. This build is not a new public release; see [verification](VERIFICATION.md).
+**2.0.0 RC1** is the current release candidate. It includes the Beta 4 fixes for PubMed transfers and PDF verification, adds an explicit PMC-only route and durable batch cancellation, and accepts UTF-8 query files for complex Windows search expressions. See the [release notes](RELEASE_NOTES.md) and [verification record](VERIFICATION.md).
 
-**2.0.0-beta.4 pre-release** adds PubMed API search and PMC-first downloads, rejects incomplete PDFs, and rechecks damaged cached files. Skill workflows use Apple Events only on macOS; Windows uses the official Playwright extension and requires a Token before connecting. If a PDF viewer cannot save automatically, the Agent asks whether to deliver bibliography only or retain tabs for manual downloading. Neither platform package bundles runtimes. Read the [release notes](RELEASE_NOTES.md), [Windows installation](references/install-windows.md), [macOS installation](references/install-macos.md), and [verification record](VERIFICATION.md).
-
-
-**English** | [简体中文](README.zh-CN.md)
+macOS browser workflows use **Apple Events only**. Windows browser workflows require the official Playwright extension and a Token before a new connection. PubMed API tasks and explicit PMC-only downloads need neither the extension nor a browser. PDF viewer saving through Playwright still requires a user choice if automatic saving fails. Download Windows, macOS, or the optional [Legacy Version 1 for macOS](LEGACY.md) from the [Latest Release](https://github.com/Alexme9125/academic-automation-skill/releases/latest). Packages do not bundle runtimes; read the [Windows](references/install-windows.md) or [macOS](references/install-macos.md) installation guide.
 
 > An AI skill for automating academic literature search and download workflows.
 
@@ -64,7 +63,7 @@ Academic platforms may change their page structures, authentication mechanisms, 
 
 ### Operating System
 
-Windows 10/11: preview support through Playwright CLI and the official Chrome extension; real Windows acceptance is pending.
+Windows 10/11: preview support through Playwright CLI and the official Chrome extension; Windows testers have reported PubMed search, bibliography and two PMC downloads; RC1 extension and publisher flows still need Windows acceptance.
 
 macOS: use Apple Events only, with System Events for native saving. Skill workflows must not use Playwright or switch to it after a failure.
 
